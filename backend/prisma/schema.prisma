@@ -1,0 +1,120 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+}
+
+enum ClientStatus {
+  LEAD
+  ACTIVE
+  INACTIVE
+  LOST
+}
+
+enum DealStage {
+  NEW
+  QUALIFICATION
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(MANAGER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  clients      Client[]
+  activityLogs ActivityLog[]
+  tasks        Task[]
+  notes        Note[]
+}
+
+model Client {
+  id        Int          @id @default(autoincrement())
+  name      String
+  email     String?
+  phone     String?
+  status    ClientStatus @default(LEAD)
+  deletedAt DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  userId Int
+  user   User   @relation(fields: [userId], references: [id])
+  deals  Deal[]
+}
+
+model Deal {
+  id        Int       @id @default(autoincrement())
+  title     String
+  value     Float?
+  stage     DealStage @default(NEW)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  clientId Int
+  client   Client @relation(fields: [clientId], references: [id])
+
+  tasks Task[]
+  notes Note[]
+}
+
+model Task {
+  id          Int        @id @default(autoincrement())
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  assigneeId Int
+  assignee   User @relation(fields: [assigneeId], references: [id])
+
+  dealId Int?
+  deal   Deal? @relation(fields: [dealId], references: [id])
+}
+
+model Note {
+  id        Int      @id @default(autoincrement())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authorId Int
+  author   User @relation(fields: [authorId], references: [id])
+
+  dealId Int
+  deal   Deal @relation(fields: [dealId], references: [id])
+}
+
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  action    String
+  entity    String
+  entityId  Int
+  createdAt DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+}
