@@ -107,30 +107,25 @@ export class AuthService {
     };
   }
 
-  // Help function for hashing long strings before bcrypt
-  private hashToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
-  }
-
   private async updateRefreshTokenHash(userId: number, refreshToken: string): Promise<void> {
-    const tokenHash = this.hashToken(refreshToken);
-
-    const hash = await bcrypt.hash(tokenHash, 10);
+    const hash = await bcrypt.hash(refreshToken.split('.')[2], 10);
     await this.usersService.updateRefreshToken(userId, hash);
   }
 
   async refreshTokens(userId: number, refreshToken: string): Promise<Tokens> {
     const user = await this.usersService.getUserById(userId);
-
-    if (!user || !user.hashedRefreshToken) {
+    console.log(user.hashedRefreshToken);
+    if (!user.hashedRefreshToken) {
       throw new ForbiddenException('Access denied');
     }
 
-    const tokenHash = this.hashToken(refreshToken);
-    const isRefreshTokenValid = await bcrypt.compare(tokenHash, user.hashedRefreshToken);
+    const isRefreshTokenValid = await bcrypt.compare(
+      refreshToken.split('.')[2],
+      user.hashedRefreshToken,
+    );
 
     if (!isRefreshTokenValid) {
-      throw new ForbiddenException('Access denied');
+      throw new ForbiddenException('Access denied2');
     }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
