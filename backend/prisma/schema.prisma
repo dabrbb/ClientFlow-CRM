@@ -5,6 +5,7 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 enum Role {
@@ -35,13 +36,14 @@ enum TaskStatus {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         Role     @default(MANAGER)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 Int      @id @default(autoincrement())
+  email              String   @unique
+  name               String
+  passwordHash       String
+  hashedRefreshToken String?
+  role               Role     @default(MANAGER)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   clients      Client[]
   activityLogs ActivityLog[]
