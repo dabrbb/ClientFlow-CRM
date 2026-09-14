@@ -12,7 +12,7 @@ import { Role, User } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { StringValue } from 'ms';
 import { LoginDto } from './dto/login.dto';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 export interface Tokens {
   accessToken: string;
@@ -114,7 +114,6 @@ export class AuthService {
 
   async refreshTokens(userId: number, refreshToken: string): Promise<Tokens> {
     const user = await this.usersService.getUserById(userId);
-    console.log(user.hashedRefreshToken);
     if (!user.hashedRefreshToken) {
       throw new ForbiddenException('Access denied');
     }
@@ -125,7 +124,7 @@ export class AuthService {
     );
 
     if (!isRefreshTokenValid) {
-      throw new ForbiddenException('Access denied2');
+      throw new ForbiddenException('Access denied');
     }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
