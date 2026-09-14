@@ -32,4 +32,12 @@ export class UsersRepository {
       },
     });
   }
+
+  async findAll(): Promise<User[]> {
+    return this.prisma.user.findMany({
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
 }
