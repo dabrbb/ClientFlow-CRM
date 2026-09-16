@@ -1,10 +1,22 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { GetClientsQueryDto } from './dto/get-clients-query.dto';
+import { ClientResponseDto } from './dto/clients-response.dto';
 
 @Controller('clients')
 @UseGuards(JwtAuthGuard)
@@ -29,8 +41,8 @@ export class ClientsController {
   }
 
   @Get()
-  async findAll() {
-    return this.clientsService.getAllClients();
+  async findAll(@Query() query: GetClientsQueryDto): Promise<ClientResponseDto> {
+    return this.clientsService.getAllClients(query);
   }
 
   @Patch(':id')

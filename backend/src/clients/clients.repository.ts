@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { Client, Prisma } from '@prisma/client';
+import { Client, ClientStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'prisma/prisma.service';
+
+interface FindAllClientsParams {
+  skip: number;
+  take: number;
+  search?: string;
+  status?: ClientStatus;
+  sort: 'name' | 'createdAt';
+  order: 'asc' | 'desc';
+}
 
 @Injectable()
 export class ClientsRepository {
@@ -18,10 +27,44 @@ export class ClientsRepository {
     });
   }
 
-  async findAll(): Promise<Client[]> {
+  async findAll(params: FindAllClientsParams): Promise<Client[]> {
+    const { skip, take, search, status, sort, order } = params;
+
+    const where: Prisma.ClientWhereInput = {};
+
+    if (search) {
+      where.OR = [
+        {
+          name: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          phone: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
     return this.prisma.client.findMany({
+      where,
+      skip,
+      take,
       orderBy: {
-        createdAt: 'desc',
+        [sort]: order,
       },
     });
   }
@@ -30,6 +73,41 @@ export class ClientsRepository {
     return this.prisma.client.update({
       where: { id },
       data,
+    });
+  }
+
+  async count(search?: string, status?: ClientStatus): Promise<number> {
+    const where: Prisma.ClientWhereInput = {};
+
+    if (search) {
+      where.OR = [
+        {
+          name: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          phone: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    return this.prisma.client.count({
+      where,
     });
   }
 }
