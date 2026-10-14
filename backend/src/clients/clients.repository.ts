@@ -15,21 +15,7 @@ interface FindAllClientsParams {
 export class ClientsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: Prisma.ClientCreateInput): Promise<Client> {
-    return this.prisma.client.create({
-      data,
-    });
-  }
-
-  async findById(id: number): Promise<Client | null> {
-    return this.prisma.client.findUnique({
-      where: { id },
-    });
-  }
-
-  async findAll(params: FindAllClientsParams): Promise<Client[]> {
-    const { skip, take, search, status, sort, order } = params;
-
+  private buildWhere(search?: string, status?: ClientStatus): Prisma.ClientWhereInput {
     const where: Prisma.ClientWhereInput = {};
 
     if (search) {
@@ -59,8 +45,26 @@ export class ClientsRepository {
       where.status = status;
     }
 
+    return where;
+  }
+
+  async create(data: Prisma.ClientCreateInput): Promise<Client> {
+    return this.prisma.client.create({
+      data,
+    });
+  }
+
+  async findById(id: number): Promise<Client | null> {
+    return this.prisma.client.findUnique({
+      where: { id },
+    });
+  }
+
+  async findAll(params: FindAllClientsParams): Promise<Client[]> {
+    const { skip, take, search, status, sort, order } = params;
+
     return this.prisma.client.findMany({
-      where,
+      where: this.buildWhere(search, status),
       skip,
       take,
       orderBy: {
@@ -77,37 +81,8 @@ export class ClientsRepository {
   }
 
   async count(search?: string, status?: ClientStatus): Promise<number> {
-    const where: Prisma.ClientWhereInput = {};
-
-    if (search) {
-      where.OR = [
-        {
-          name: {
-            contains: search,
-            mode: 'insensitive',
-          },
-        },
-        {
-          email: {
-            contains: search,
-            mode: 'insensitive',
-          },
-        },
-        {
-          phone: {
-            contains: search,
-            mode: 'insensitive',
-          },
-        },
-      ];
-    }
-
-    if (status) {
-      where.status = status;
-    }
-
     return this.prisma.client.count({
-      where,
+      where: this.buildWhere(search, status),
     });
   }
 }
