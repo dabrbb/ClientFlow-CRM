@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { PrismaModule } from 'prisma/prisma.module';
 import { ClientsModule } from './clients/clients.module';
 import { DealsModule } from './deals/deals.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { DealsModule } from './deals/deals.module';
     PrismaModule,
     ClientsModule,
     DealsModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [],
