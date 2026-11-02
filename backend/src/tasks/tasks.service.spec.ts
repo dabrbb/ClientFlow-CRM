@@ -13,6 +13,10 @@ describe('TasksService', () => {
   const tasksRepository = {
     findById: jest.fn<Promise<TaskWithRelations | null>, [number]>(),
     update: jest.fn<Promise<Task>, [number, Prisma.TaskUpdateInput]>(),
+    findAll: jest.fn<
+      ReturnType<TasksRepository['findAll']>,
+      Parameters<TasksRepository['findAll']>
+    >(),
   };
 
   const makeTask = (overrides: Partial<TaskWithRelations> = {}): TaskWithRelations => ({
@@ -49,6 +53,41 @@ describe('TasksService', () => {
     }).compile();
 
     service = moduleRef.get(TasksService);
+  });
+
+  describe('getAllTasks', () => {
+    it('maps every task to a TaskResponseDto, keeping the order', async () => {
+      tasksRepository.findAll.mockResolvedValue([makeTask({ id: 2 }), makeTask({ id: 1 })]);
+
+      const result = await service.getAllTasks();
+
+      expect(result.map((task) => task.id)).toEqual([2, 1]);
+      result.forEach((task) => expect(task).toBeInstanceOf(TaskResponseDto));
+    });
+
+    it('passes no filter to the repository by default', async () => {
+      tasksRepository.findAll.mockResolvedValue([]);
+
+      await service.getAllTasks();
+
+      expect(tasksRepository.findAll.mock.calls[0]).toStrictEqual([{}]);
+    });
+
+    it('passes the given filters to the repository unchanged', async () => {
+      tasksRepository.findAll.mockResolvedValue([makeTask({ assigneeId: 7 })]);
+
+      const result = await service.getAllTasks({ assigneeId: 7 });
+
+      expect(tasksRepository.findAll.mock.calls[0]).toStrictEqual([{ assigneeId: 7 }]);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toBeInstanceOf(TaskResponseDto);
+    });
+
+    it('returns an empty list when there are no tasks', async () => {
+      tasksRepository.findAll.mockResolvedValue([]);
+
+      await expect(service.getAllTasks()).resolves.toEqual([]);
+    });
   });
 
   describe('updateTask', () => {

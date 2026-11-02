@@ -1,17 +1,26 @@
-import { INestApplication, NotFoundException, ValidationPipe } from '@nestjs/common';
+import {
+  ExecutionContext,
+  INestApplication,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Role, Task, TaskStatus } from '@prisma/client';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import type { AuthenticatedRequest } from 'src/auth/interfaces/authenticated-request.interface';
+import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { TaskResponseDto } from './dto/task-response.dto';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
 
 // These tests go through real HTTP routing and the global ValidationPipe, but the service is a
-// mock and the auth guard is replaced, so no database or token is involved.
+// mock and the auth guard is replaced by one that puts a fixed user on the request, so no
+// database or token is involved.
 describe('TasksController (HTTP, no database)', () => {
   let app: INestApplication<App>;
+  let signedInUser: JwtPayload;
 
   const tasksService = {
     createTask: jest.fn<
@@ -73,7 +82,12 @@ describe('TasksController (HTTP, no database)', () => {
       providers: [{ provide: TasksService, useValue: tasksService }],
     })
       .overrideGuard(JwtAuthGuard)
-      .useValue({ canActivate: () => true })
+      .useValue({
+        canActivate: (context: ExecutionContext) => {
+          context.switchToHttp().getRequest<AuthenticatedRequest>().user = signedInUser;
+          return true;
+        },
+      })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -90,6 +104,7 @@ describe('TasksController (HTTP, no database)', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    signedInUser = { sub: 7, email: 'me@example.com', role: Role.MANAGER };
   });
 
   describe('PATCH /tasks/:id/status', () => {
@@ -174,6 +189,88 @@ describe('TasksController (HTTP, no database)', () => {
 
       expect(res.status).toBe(404);
       expect(res.body).toHaveProperty('message', 'Task not found');
+    });
+  });
+
+  describe('GET /tasks (mine filter)', () => {
+    const assigneeIdOfCall = () => tasksService.getAllTasks.mock.calls[0][0]?.assigneeId;
+
+    it('without parameters returns the list and applies no filter', async () => {
+      tasksService.getAllTasks.mockResolvedValue([makeResponse()]);
+
+      const res = await request(app.getHttpServer()).get('/tasks');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(asJson([makeResponse()]));
+      expect(tasksService.getAllTasks).toHaveBeenCalledTimes(1);
+      expect(assigneeIdOfCall()).toBeUndefined();
+    });
+
+    it('mine=false applies no filter, like no parameter', async () => {
+      tasksService.getAllTasks.mockResolvedValue([]);
+
+      const res = await request(app.getHttpServer()).get('/tasks?mine=false');
+
+      expect(res.status).toBe(200);
+      expect(assigneeIdOfCall()).toBeUndefined();
+    });
+
+    it('mine=true filters by the id of the signed-in user (JWT sub)', async () => {
+      tasksService.getAllTasks.mockResolvedValue([makeResponse()]);
+
+      const res = await request(app.getHttpServer()).get('/tasks?mine=true');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(asJson([makeResponse()]));
+      expect(assigneeIdOfCall()).toBe(7);
+    });
+
+    it('mine=true follows whoever is signed in', async () => {
+      signedInUser = { ...signedInUser, sub: 42 };
+      tasksService.getAllTasks.mockResolvedValue([]);
+
+      await request(app.getHttpServer()).get('/tasks?mine=true');
+
+      expect(assigneeIdOfCall()).toBe(42);
+    });
+
+    it.each([
+      ['/tasks?mine=1'],
+      ['/tasks?mine=0'],
+      ['/tasks?mine=TRUE'],
+      ['/tasks?mine=True'],
+      ['/tasks?mine=yes'],
+      ['/tasks?mine='],
+      ['/tasks?mine=true&mine=true'],
+      ['/tasks?mine=true&mine=false'],
+    ])('rejects %s with 400 and does not call the service', async (url) => {
+      const res = await request(app.getHttpServer()).get(url);
+
+      expect(res.status).toBe(400);
+      expect(tasksService.getAllTasks).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['/tasks?foo=bar'],
+      ['/tasks?mine=true&userId=99'],
+      ['/tasks?mine=true&assigneeId=99'],
+      ['/tasks?assigneeId=5'],
+      ['/tasks?userId=5'],
+    ])('rejects the unknown parameter in %s with 400', async (url) => {
+      const res = await request(app.getHttpServer()).get(url);
+
+      expect(res.status).toBe(400);
+      expect(tasksService.getAllTasks).not.toHaveBeenCalled();
+    });
+
+    it('does not change the neighbouring GET /tasks/:id route', async () => {
+      tasksService.getTaskById.mockResolvedValue(makeResponse());
+
+      const res = await request(app.getHttpServer()).get('/tasks/5');
+
+      expect(res.status).toBe(200);
+      expect(tasksService.getTaskById).toHaveBeenCalledWith(5);
+      expect(tasksService.getAllTasks).not.toHaveBeenCalled();
     });
   });
 

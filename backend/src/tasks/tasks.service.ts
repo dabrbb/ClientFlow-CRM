@@ -4,7 +4,7 @@ import { Prisma, Task, TaskStatus } from '@prisma/client';
 import { UsersService } from 'src/users/users.service';
 import { DealsService } from 'src/deals/deals.service';
 
-import { TasksRepository } from './tasks.repository';
+import { TaskFilters, TasksRepository } from './tasks.repository';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -48,8 +48,8 @@ export class TasksService {
     return new TaskResponseDto(task);
   }
 
-  async getAllTasks(): Promise<TaskResponseDto[]> {
-    const tasks = await this.tasksRepository.findAll();
+  async getAllTasks(filters: TaskFilters = {}): Promise<TaskResponseDto[]> {
+    const tasks = await this.tasksRepository.findAll(filters);
 
     return tasks.map((task) => new TaskResponseDto(task));
   }

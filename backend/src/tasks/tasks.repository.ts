@@ -23,9 +23,23 @@ export type TaskWithRelations = Prisma.TaskGetPayload<{
   };
 }>;
 
+export interface TaskFilters {
+  assigneeId?: number;
+}
+
 @Injectable()
 export class TasksRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  private buildWhere({ assigneeId }: TaskFilters): Prisma.TaskWhereInput {
+    const where: Prisma.TaskWhereInput = {};
+
+    if (assigneeId !== undefined) {
+      where.assigneeId = assigneeId;
+    }
+
+    return where;
+  }
 
   async create(data: Prisma.TaskCreateInput): Promise<Task> {
     return this.prisma.task.create({
@@ -57,8 +71,9 @@ export class TasksRepository {
     });
   }
 
-  async findAll(): Promise<TaskWithRelations[]> {
+  async findAll(filters: TaskFilters = {}): Promise<TaskWithRelations[]> {
     return this.prisma.task.findMany({
+      where: this.buildWhere(filters),
       orderBy: { createdAt: 'desc' },
       include: {
         assignee: {

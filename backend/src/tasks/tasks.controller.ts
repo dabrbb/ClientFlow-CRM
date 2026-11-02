@@ -1,7 +1,20 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
+import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
@@ -17,8 +30,8 @@ export class TasksController {
   }
 
   @Get()
-  async findAll() {
-    return this.tasksService.getAllTasks();
+  async findAll(@Query() query: GetTasksQueryDto, @CurrentUser() user: JwtPayload) {
+    return this.tasksService.getAllTasks({ assigneeId: query.mine ? user.sub : undefined });
   }
 
   @Get(':id')
