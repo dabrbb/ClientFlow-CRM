@@ -88,12 +88,12 @@ export class AuthService {
 
     const accessTokenOptions: JwtSignOptions = {
       secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.configService.get<StringValue>('JWT_ACCESS_EXPIRATION', '15m'),
+      expiresIn: this.configService.getOrThrow<StringValue>('JWT_ACCESS_EXPIRES'),
     };
 
     const refreshTokenOptions: JwtSignOptions = {
       secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.configService.get<StringValue>('JWT_REFRESH_EXPIRATION', '7d'),
+      expiresIn: this.configService.getOrThrow<StringValue>('JWT_REFRESH_EXPIRES'),
     };
 
     const [accessToken, refreshToken] = await Promise.all([
