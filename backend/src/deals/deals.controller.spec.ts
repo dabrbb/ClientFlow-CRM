@@ -323,6 +323,64 @@ describe('DealsController (HTTP, no database)', () => {
     });
   });
 
+  describe('stage: null over HTTP', () => {
+    beforeEach(() => {
+      clientsService.getClientById.mockResolvedValue(makeClient());
+      dealsRepository.create.mockResolvedValue(makeDeal());
+      dealsRepository.findById.mockResolvedValue(makeDeal());
+      dealsRepository.update.mockResolvedValue(makeDeal());
+    });
+
+    it('POST rejects null with 400 and touches nothing', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/deals')
+        .send({ title: 'Big deal', clientId: 3, stage: null });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('message', [
+        'stage must be one of the following values: NEW, QUALIFICATION, NEGOTIATION, WON, LOST',
+      ]);
+      expect(clientsService.getClientById).not.toHaveBeenCalled();
+      expect(dealsRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('PATCH rejects null with 400 and touches nothing', async () => {
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage: null });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('message', [
+        'stage must be one of the following values: NEW, QUALIFICATION, NEGOTIATION, WON, LOST',
+      ]);
+      expect(dealsRepository.findById).not.toHaveBeenCalled();
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('PATCH rejects null next to valid fields and updates nothing', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/deals/5')
+        .send({ title: 'New title', stage: null });
+
+      expect(res.status).toBe(400);
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it.each(Object.values(DealStage))('POST still accepts %s', async (stage) => {
+      const res = await request(app.getHttpServer())
+        .post('/deals')
+        .send({ title: 'Big deal', clientId: 3, stage });
+
+      expect(res.status).toBe(201);
+      expect(dealsRepository.create.mock.calls[0][0]).toMatchObject({ stage });
+    });
+
+    it.each(Object.values(DealStage))('PATCH still accepts %s', async (stage) => {
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage });
+
+      expect(res.status).toBe(200);
+      expect(dealsRepository.update.mock.calls[0][1]).toMatchObject({ stage });
+    });
+  });
+
   describe('GET /deals', () => {
     it('returns every deal in the order the repository gives, as public shapes', async () => {
       dealsRepository.findAll.mockResolvedValue([makeDeal({ id: 2 }), makeDeal({ id: 1 })]);

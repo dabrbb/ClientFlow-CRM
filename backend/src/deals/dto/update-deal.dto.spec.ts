@@ -1,4 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
+import { DealStage } from '@prisma/client';
 import { UpdateDealDto } from './update-deal.dto';
 
 // Same options as the global pipe in main.ts.
@@ -58,5 +59,39 @@ describe('UpdateDealDto expectedCloseDate', () => {
     await expect(parse({ expectedCloseDate: '2026-11-02', stage: 'BOGUS' })).rejects.toMatchObject(
       rejectedFor,
     );
+  });
+});
+
+describe('UpdateDealDto stage', () => {
+  it('stays undefined when not sent, which means "do not change it"', async () => {
+    await expect(parse({ title: 'New title' })).resolves.toHaveProperty('stage', undefined);
+  });
+
+  it.each(Object.values(DealStage))('accepts %s', async (stage) => {
+    await expect(parse({ stage })).resolves.toHaveProperty('stage', stage);
+  });
+
+  it('rejects null', async () => {
+    await expect(parse({ stage: null })).rejects.toMatchObject(rejectedFor);
+  });
+
+  it('lists the allowed stages in the error for null', async () => {
+    await expect(parse({ stage: null })).rejects.toHaveProperty('response.message', [
+      'stage must be one of the following values: NEW, QUALIFICATION, NEGOTIATION, WON, LOST',
+    ]);
+  });
+
+  it('rejects null even when every other field is valid', async () => {
+    await expect(
+      parse({ title: 'New title', value: 10, expectedCloseDate: '2026-11-02', stage: null }),
+    ).rejects.toMatchObject(rejectedFor);
+  });
+
+  it.each<unknown>(['done', 'BOGUS', '', 0, 1, [], {}, true])('still rejects %j', async (stage) => {
+    await expect(parse({ stage })).rejects.toMatchObject(rejectedFor);
+  });
+
+  it('leaves the other fields alone: value null is still accepted', async () => {
+    await expect(parse({ value: null })).resolves.toHaveProperty('value', null);
   });
 });

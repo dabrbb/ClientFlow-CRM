@@ -1,5 +1,13 @@
 import { DealStage } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsPositive, IsString, Length } from 'class-validator';
+import {
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Length,
+  ValidateIf,
+} from 'class-validator';
 import { IsExpectedCloseDate } from './expected-close-date.decorator';
 
 export class UpdateDealDto {
@@ -13,7 +21,8 @@ export class UpdateDealDto {
   @IsPositive()
   value?: number;
 
-  @IsOptional()
+  // The field may be left out, but an explicit null is rejected; IsOptional would let it through.
+  @ValidateIf((_, value) => value !== undefined)
   @IsEnum(DealStage)
   stage?: DealStage;
 
