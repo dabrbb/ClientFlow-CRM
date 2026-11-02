@@ -3,6 +3,8 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
+import { TaskResponseDto } from './dto/task-response.dto';
 
 @Controller('tasks')
 @UseGuards(JwtAuthGuard)
@@ -27,5 +29,13 @@ export class TasksController {
   @Patch(':id')
   async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTaskDto) {
     return this.tasksService.updateTask(id, dto);
+  }
+
+  @Patch(':id/status')
+  async updateStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateTaskStatusDto,
+  ): Promise<TaskResponseDto> {
+    return this.tasksService.updateTaskStatus(id, dto.status);
   }
 }

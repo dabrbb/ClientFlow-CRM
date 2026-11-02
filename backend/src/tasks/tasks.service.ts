@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Task } from '@prisma/client';
+import { Prisma, Task, TaskStatus } from '@prisma/client';
 
 import { UsersService } from 'src/users/users.service';
 import { DealsService } from 'src/deals/deals.service';
@@ -73,5 +73,9 @@ export class TasksService {
     }
 
     return new TaskResponseDto(task);
+  }
+
+  async updateTaskStatus(id: number, status: TaskStatus): Promise<TaskResponseDto> {
+    return this.updateTask(id, { status });
   }
 }
