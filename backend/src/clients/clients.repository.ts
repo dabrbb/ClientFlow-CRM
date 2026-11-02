@@ -2,11 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { Client, ClientStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 
-interface FindAllClientsParams {
-  skip: number;
-  take: number;
+interface ClientFilters {
   search?: string;
   status?: ClientStatus;
+  createdAfter?: Date;
+}
+
+interface FindAllClientsParams extends ClientFilters {
+  skip: number;
+  take: number;
   sort: 'name' | 'createdAt';
   order: 'asc' | 'desc';
 }
@@ -15,7 +19,7 @@ interface FindAllClientsParams {
 export class ClientsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildWhere(search?: string, status?: ClientStatus): Prisma.ClientWhereInput {
+  private buildWhere({ search, status, createdAfter }: ClientFilters): Prisma.ClientWhereInput {
     const where: Prisma.ClientWhereInput = {};
 
     if (search) {
@@ -45,6 +49,10 @@ export class ClientsRepository {
       where.status = status;
     }
 
+    if (createdAfter) {
+      where.createdAt = { gte: createdAfter };
+    }
+
     return where;
   }
 
@@ -61,10 +69,10 @@ export class ClientsRepository {
   }
 
   async findAll(params: FindAllClientsParams): Promise<Client[]> {
-    const { skip, take, search, status, sort, order } = params;
+    const { skip, take, sort, order, ...filters } = params;
 
     return this.prisma.client.findMany({
-      where: this.buildWhere(search, status),
+      where: this.buildWhere(filters),
       skip,
       take,
       orderBy: {
@@ -80,9 +88,9 @@ export class ClientsRepository {
     });
   }
 
-  async count(search?: string, status?: ClientStatus): Promise<number> {
+  async count(filters: ClientFilters): Promise<number> {
     return this.prisma.client.count({
-      where: this.buildWhere(search, status),
+      where: this.buildWhere(filters),
     });
   }
 }

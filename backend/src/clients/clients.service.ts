@@ -23,20 +23,26 @@ export class ClientsService {
   }
 
   async getAllClients(query: GetClientsQueryDto): Promise<ClientResponseDto> {
-    const { page, limit, search, status, sort, order } = query;
+    const { page, limit, search, status, createdAfter, sort, order } = query;
 
     const skip = (page - 1) * limit;
 
+    const filters = {
+      search,
+      status,
+      // Date-only strings parse as UTC midnight; the DTO guarantees every date-time has Z/offset.
+      createdAfter: createdAfter ? new Date(createdAfter) : undefined,
+    };
+
     const [clients, total] = await Promise.all([
       this.clientsRepository.findAll({
+        ...filters,
         skip,
         take: limit,
-        search,
-        status,
         sort,
         order,
       }),
-      this.clientsRepository.count(search, status),
+      this.clientsRepository.count(filters),
     ]);
 
     return new ClientResponseDto(clients, page, limit, total);

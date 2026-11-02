@@ -7,7 +7,7 @@ export class ClientResponseDto {
     page: number;
     limit: number;
     total: number;
-    totalPages: number;
+    pages: number;
   };
 
   constructor(clients: Client[], page: number, limit: number, total: number) {
@@ -17,7 +17,7 @@ export class ClientResponseDto {
       page,
       limit,
       total,
-      totalPages: Math.ceil(total / limit),
+      pages: Math.ceil(total / limit),
     };
   }
 }
