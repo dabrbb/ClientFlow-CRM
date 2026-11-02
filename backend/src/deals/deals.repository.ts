@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Deal, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 export type DealWithClient = Prisma.DealGetPayload<{

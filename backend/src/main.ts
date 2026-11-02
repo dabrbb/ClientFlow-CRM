@@ -15,4 +15,4 @@ async function start() {
 
   await app.listen(process.env.PORT ?? 3000);
 }
-start();
+void start();

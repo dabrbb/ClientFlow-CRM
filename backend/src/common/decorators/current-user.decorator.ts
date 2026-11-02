@@ -1,10 +1,14 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
+import type { AuthenticatedRequest } from 'src/auth/interfaces/authenticated-request.interface';
+import type { JwtPayload, JwtRefreshPayload } from 'src/auth/interfaces/jwt-payload.interface';
 
 export const CurrentUser = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): JwtPayload => {
-    const request = ctx.switchToHttp().getRequest();
+  (_data: unknown, ctx: ExecutionContext): JwtPayload =>
+    ctx.switchToHttp().getRequest<AuthenticatedRequest>().user,
+);
 
-    return request.user;
-  },
+// Only valid behind RefreshTokenGuard: its strategy adds refreshToken to the user object.
+export const CurrentRefreshUser = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): JwtRefreshPayload =>
+    ctx.switchToHttp().getRequest<AuthenticatedRequest<JwtRefreshPayload>>().user,
 );

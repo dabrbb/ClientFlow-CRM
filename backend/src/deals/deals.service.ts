@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DealsRepository } from './deals.repository';
-import { Deal, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { ClientsService } from 'src/clients/clients.service';
 import { DealResponseDto } from './dto/deal-response.dto';
 

@@ -1,4 +1,4 @@
-import { Client, Deal, DealStage } from '@prisma/client';
+import { DealStage } from '@prisma/client';
 import { ClientShortDto } from './client-short.dto';
 import { DealWithClient } from '../deals.repository';
 

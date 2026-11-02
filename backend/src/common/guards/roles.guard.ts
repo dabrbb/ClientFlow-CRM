@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import { Reflector } from '@nestjs/core';
 import { Role } from '@prisma/client';
 import { ROLES_KEY } from '../decorators/roles.decorator';
-import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
+import type { AuthenticatedRequest } from 'src/auth/interfaces/authenticated-request.interface';
 
 /*
     This guard is checking the role from payload
@@ -22,8 +22,8 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user as JwtPayload;
+    // Partial: this guard can be applied without JwtAuthGuard, so user may be missing.
+    const { user } = context.switchToHttp().getRequest<Partial<AuthenticatedRequest>>();
 
     if (!user) {
       throw new ForbiddenException('User not found in request');
