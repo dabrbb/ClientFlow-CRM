@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Client, ClientStatus, DealStage } from '@prisma/client';
 import { ClientsService } from 'src/clients/clients.service';
@@ -179,6 +179,131 @@ describe('DealsService', () => {
       await service.updateDeal(5, updateDto({ title: 'New', value: 10, stage: DealStage.WON }));
 
       expect(updatedData()).toMatchObject({ title: 'New', value: 10, stage: DealStage.WON });
+    });
+  });
+
+  describe('updateDeal stage transitions', () => {
+    // The eight forbidden transitions, written by hand. Everything else is allowed.
+    const forbidden: [DealStage, DealStage][] = [
+      [DealStage.WON, DealStage.NEW],
+      [DealStage.WON, DealStage.QUALIFICATION],
+      [DealStage.WON, DealStage.NEGOTIATION],
+      [DealStage.WON, DealStage.LOST],
+      [DealStage.LOST, DealStage.NEW],
+      [DealStage.LOST, DealStage.QUALIFICATION],
+      [DealStage.LOST, DealStage.NEGOTIATION],
+      [DealStage.LOST, DealStage.WON],
+    ];
+    const stages = Object.values(DealStage);
+    const pairs = stages.flatMap((from) =>
+      stages.map((to): [DealStage, DealStage, string, boolean] => {
+        const isAllowed = !forbidden.some(([f, t]) => f === from && t === to);
+        return [from, to, isAllowed ? 'allowed' : 'forbidden', isAllowed];
+      }),
+    );
+
+    it('covers all 25 transitions', () => {
+      expect(pairs).toHaveLength(25);
+      expect(pairs.filter(([, , , isAllowed]) => !isAllowed)).toHaveLength(8);
+    });
+
+    it.each(pairs)('%s -> %s is %s', async (from, to, _label, isAllowed) => {
+      dealsRepository.findById.mockResolvedValue(makeDeal({ stage: from }));
+      dealsRepository.update.mockResolvedValue(makeDeal({ stage: to }));
+
+      const result = service.updateDeal(5, updateDto({ stage: to }));
+
+      if (isAllowed) {
+        await expect(result).resolves.toHaveProperty('stage', to);
+        expect(dealsRepository.update).toHaveBeenCalledTimes(1);
+        expect(updatedData()).toMatchObject({ stage: to });
+      } else {
+        await expect(result).rejects.toBeInstanceOf(ConflictException);
+        expect(dealsRepository.update).not.toHaveBeenCalled();
+      }
+    });
+
+    it('answers 409 and says which stages are involved', async () => {
+      dealsRepository.findById.mockResolvedValue(makeDeal({ stage: DealStage.WON }));
+
+      const result = service.updateDeal(5, updateDto({ stage: DealStage.NEW }));
+
+      await expect(result).rejects.toThrow(
+        new ConflictException('A WON deal cannot move to NEW: WON and LOST are final stages'),
+      );
+      await expect(result).rejects.toHaveProperty('status', 409);
+    });
+
+    it('names the stages of the actual request', async () => {
+      dealsRepository.findById.mockResolvedValue(makeDeal({ stage: DealStage.LOST }));
+
+      await expect(service.updateDeal(5, updateDto({ stage: DealStage.WON }))).rejects.toThrow(
+        'A LOST deal cannot move to WON: WON and LOST are final stages',
+      );
+    });
+
+    it('reads the deal only once', async () => {
+      await service.updateDeal(5, updateDto({ stage: DealStage.WON }));
+
+      expect(dealsRepository.findById).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([DealStage.WON, DealStage.LOST])(
+      'does not check anything when the stage is not sent: a %s deal can still be edited',
+      async (stage) => {
+        dealsRepository.findById.mockResolvedValue(makeDeal({ stage }));
+
+        await service.updateDeal(
+          5,
+          updateDto({ title: 'New title', value: 10, expectedCloseDate: '2026-11-02' }),
+        );
+        await service.updateDeal(5, updateDto({ expectedCloseDate: null }));
+
+        expect(dealsRepository.update).toHaveBeenCalledTimes(2);
+        expect(dealsRepository.update.mock.calls[0][1]).toMatchObject({
+          title: 'New title',
+          value: 10,
+        });
+        expect(dealsRepository.update.mock.calls[1][1].expectedCloseDate).toBeNull();
+      },
+    );
+
+    it.each([DealStage.WON, DealStage.LOST])(
+      'lets a %s deal keep its stage while other fields change',
+      async (stage) => {
+        dealsRepository.findById.mockResolvedValue(makeDeal({ stage }));
+
+        await service.updateDeal(5, updateDto({ title: 'New title', stage }));
+
+        expect(updatedData()).toMatchObject({ title: 'New title', stage });
+      },
+    );
+
+    it('rejects the whole request when the stage change is forbidden, other fields too', async () => {
+      dealsRepository.findById.mockResolvedValue(makeDeal({ stage: DealStage.WON }));
+
+      await expect(
+        service.updateDeal(5, updateDto({ title: 'New title', stage: DealStage.NEW })),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404, not 409, for a deal that does not exist', async () => {
+      dealsRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.updateDeal(999, updateDto({ stage: DealStage.NEW })),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createDeal stages', () => {
+    it.each(Object.values(DealStage))('accepts %s as the first stage', async (stage) => {
+      await service.createDeal(createDto({ stage }));
+
+      expect(createdData()).toMatchObject({ stage });
+      expect(dealsRepository.findById).not.toHaveBeenCalled();
     });
   });
 

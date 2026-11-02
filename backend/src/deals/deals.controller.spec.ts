@@ -381,6 +381,121 @@ describe('DealsController (HTTP, no database)', () => {
     });
   });
 
+  describe('stage transitions over HTTP', () => {
+    const wonDeal = () => makeDeal({ stage: DealStage.WON });
+
+    beforeEach(() => {
+      dealsRepository.findById.mockResolvedValue(makeDeal());
+      dealsRepository.update.mockResolvedValue(makeDeal());
+    });
+
+    it('answers 409 with a Conflict body for a forbidden transition', async () => {
+      dealsRepository.findById.mockResolvedValue(wonDeal());
+
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage: 'NEW' });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'A WON deal cannot move to NEW: WON and LOST are final stages',
+      });
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 for LOST -> WON as well', async () => {
+      dealsRepository.findById.mockResolvedValue(makeDeal({ stage: DealStage.LOST }));
+
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage: 'WON' });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toHaveProperty(
+        'message',
+        'A LOST deal cannot move to WON: WON and LOST are final stages',
+      );
+    });
+
+    it('does not update other fields when the transition is forbidden', async () => {
+      dealsRepository.findById.mockResolvedValue(wonDeal());
+
+      const res = await request(app.getHttpServer())
+        .patch('/deals/5')
+        .send({ title: 'New title', stage: 'NEW' });
+
+      expect(res.status).toBe(409);
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('allows a transition out of an open stage', async () => {
+      dealsRepository.update.mockResolvedValue(wonDeal());
+
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage: 'WON' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('stage', 'WON');
+      expect(dealsRepository.update.mock.calls[0][1]).toMatchObject({ stage: 'WON' });
+    });
+
+    it('allows other fields of a closed deal to change', async () => {
+      dealsRepository.findById.mockResolvedValue(wonDeal());
+      dealsRepository.update.mockResolvedValue(wonDeal());
+
+      const res = await request(app.getHttpServer())
+        .patch('/deals/5')
+        .send({ title: 'New title', value: 10, expectedCloseDate: '2026-11-02' });
+
+      expect(res.status).toBe(200);
+      expect(dealsRepository.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows a closed deal to keep its stage', async () => {
+      dealsRepository.findById.mockResolvedValue(wonDeal());
+      dealsRepository.update.mockResolvedValue(wonDeal());
+
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage: 'WON' });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('answers 400 for an unknown stage before looking at the deal', async () => {
+      dealsRepository.findById.mockResolvedValue(wonDeal());
+
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage: 'BOGUS' });
+
+      expect(res.status).toBe(400);
+      expect(dealsRepository.findById).not.toHaveBeenCalled();
+    });
+
+    it('answers 400 for a null stage on a closed deal', async () => {
+      dealsRepository.findById.mockResolvedValue(wonDeal());
+
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ stage: null });
+
+      expect(res.status).toBe(400);
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404, not 409, for a missing deal', async () => {
+      dealsRepository.findById.mockResolvedValue(null);
+
+      const res = await request(app.getHttpServer()).patch('/deals/999').send({ stage: 'NEW' });
+
+      expect(res.status).toBe(404);
+      expect(res.body).toHaveProperty('message', 'Deal not found');
+    });
+
+    it.each(Object.values(DealStage))('POST still creates a deal in %s', async (stage) => {
+      clientsService.getClientById.mockResolvedValue(makeClient());
+      dealsRepository.create.mockResolvedValue(makeDeal({ stage }));
+
+      const res = await request(app.getHttpServer())
+        .post('/deals')
+        .send({ title: 'Big deal', clientId: 3, stage });
+
+      expect(res.status).toBe(201);
+    });
+  });
+
   describe('GET /deals', () => {
     it('returns every deal in the order the repository gives, as public shapes', async () => {
       dealsRepository.findAll.mockResolvedValue([makeDeal({ id: 2 }), makeDeal({ id: 1 })]);
