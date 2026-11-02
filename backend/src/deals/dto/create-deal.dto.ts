@@ -1,5 +1,6 @@
 import { DealStage } from '@prisma/client';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsPositive, IsString, Length } from 'class-validator';
+import { IsExpectedCloseDate } from './expected-close-date.decorator';
 
 export class CreateDealDto {
   @IsString()
@@ -14,6 +15,9 @@ export class CreateDealDto {
   @IsOptional()
   @IsEnum(DealStage)
   stage?: DealStage;
+
+  @IsExpectedCloseDate()
+  expectedCloseDate?: string | null;
 
   @IsInt()
   @IsPositive()

@@ -12,19 +12,7 @@ export class DealsController {
 
   @Post()
   async create(@Body() dto: CreateDealDto): Promise<DealResponseDto> {
-    return this.dealsService.createDeal(
-      {
-        title: dto.title,
-        value: dto.value,
-        stage: dto.stage,
-        client: {
-          connect: {
-            id: dto.clientId,
-          },
-        },
-      },
-      dto.clientId,
-    );
+    return this.dealsService.createDeal(dto);
   }
 
   @Get()

@@ -67,12 +67,13 @@ model Client {
 }
 
 model Deal {
-  id        Int       @id @default(autoincrement())
-  title     String
-  value     Float?
-  stage     DealStage @default(NEW)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                Int       @id @default(autoincrement())
+  title             String
+  value             Float?
+  stage             DealStage @default(NEW)
+  expectedCloseDate DateTime? @db.Date
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   clientId Int
   client   Client @relation(fields: [clientId], references: [id])

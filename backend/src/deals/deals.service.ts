@@ -3,6 +3,9 @@ import { DealsRepository } from './deals.repository';
 import { Prisma } from '@prisma/client';
 import { ClientsService } from 'src/clients/clients.service';
 import { DealResponseDto } from './dto/deal-response.dto';
+import { CreateDealDto } from './dto/create-deal.dto';
+import { UpdateDealDto } from './dto/update-deal.dto';
+import { parseOptionalDateOnly } from './date-only';
 
 @Injectable()
 export class DealsService {
@@ -11,10 +14,16 @@ export class DealsService {
     private readonly clientsService: ClientsService,
   ) {}
 
-  async createDeal(data: Prisma.DealCreateInput, clientId: number): Promise<DealResponseDto> {
-    await this.clientsService.getClientById(clientId);
+  async createDeal(dto: CreateDealDto): Promise<DealResponseDto> {
+    await this.clientsService.getClientById(dto.clientId);
 
-    const deal = await this.dealsRepository.create(data);
+    const deal = await this.dealsRepository.create({
+      title: dto.title,
+      value: dto.value,
+      stage: dto.stage,
+      expectedCloseDate: parseOptionalDateOnly(dto.expectedCloseDate),
+      client: { connect: { id: dto.clientId } },
+    });
 
     return new DealResponseDto(deal);
   }
@@ -35,8 +44,13 @@ export class DealsService {
     return deals.map((deal) => new DealResponseDto(deal));
   }
 
-  async updateDeal(id: number, data: Prisma.DealUpdateInput): Promise<DealResponseDto> {
+  async updateDeal(id: number, dto: UpdateDealDto): Promise<DealResponseDto> {
     await this.getDealById(id);
+
+    const data: Prisma.DealUpdateInput = {
+      ...dto,
+      expectedCloseDate: parseOptionalDateOnly(dto.expectedCloseDate),
+    };
 
     const deal = await this.dealsRepository.update(id, data);
 

@@ -1,12 +1,14 @@
 import { DealStage } from '@prisma/client';
 import { ClientShortDto } from './client-short.dto';
 import { DealWithClient } from '../deals.repository';
+import { formatDateOnly } from '../date-only';
 
 export class DealResponseDto {
   readonly id: number;
   readonly title: string;
   readonly value: number | null;
   readonly stage: DealStage;
+  readonly expectedCloseDate: string | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 
@@ -17,6 +19,8 @@ export class DealResponseDto {
     this.title = deal.title;
     this.value = deal.value;
     this.stage = deal.stage;
+    this.expectedCloseDate =
+      deal.expectedCloseDate === null ? null : formatDateOnly(deal.expectedCloseDate);
     this.createdAt = deal.createdAt;
     this.updatedAt = deal.updatedAt;
 
