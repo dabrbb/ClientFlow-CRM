@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Client, ClientStatus, Prisma } from '@prisma/client';
-import { PrismaService } from 'prisma/prisma.service';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 interface FindAllClientsParams {
   skip: number;
