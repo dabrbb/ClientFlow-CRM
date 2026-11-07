@@ -133,14 +133,24 @@ export class ClientsService {
   }
 
   // A manager may remove themselves or a colleague. When the last one goes, the client returns
-  // to the pool.
+  // to the pool. Open tasks must be handed over first, otherwise they would stay with someone who
+  // can no longer see them; closed ones (DONE, CANCELLED) do not count.
   async removeManager(clientId: number, userId: number, actor: JwtPayload): Promise<void> {
     await this.getClientForActor(clientId, actor);
 
-    const removed = await this.clientsRepository.removeManager(clientId, userId);
-
-    if (!removed) {
+    if (!(await this.clientsRepository.isAssigned(clientId, userId))) {
       throw new NotFoundException('This user is not assigned to the client');
     }
+
+    const openTasks = await this.clientsRepository.countOpenTasks(clientId, userId);
+
+    if (openTasks > 0) {
+      throw new ConflictException(
+        `This manager still has ${openTasks} open task(s) on this client. ` +
+          'Hand them to another manager or close them first',
+      );
+    }
+
+    await this.clientsRepository.removeManager(clientId, userId);
   }
 }

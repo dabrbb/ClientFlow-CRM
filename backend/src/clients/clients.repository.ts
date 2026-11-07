@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Client, ClientStatus, Prisma } from '@prisma/client';
+import { Client, ClientStatus, Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 interface ClientFilters {
@@ -172,6 +172,18 @@ export class ClientsRepository {
     const count = await this.prisma.clientManager.count({ where: { clientId, userId } });
 
     return count > 0;
+  }
+
+  // Tasks that are still being worked on (not DONE or CANCELLED) which a user holds on this
+  // client's deals.
+  async countOpenTasks(clientId: number, userId: number): Promise<number> {
+    return this.prisma.task.count({
+      where: {
+        assigneeId: userId,
+        status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] },
+        deal: { clientId },
+      },
+    });
   }
 
   async findManagers(clientId: number): Promise<ClientManagerWithUser[]> {

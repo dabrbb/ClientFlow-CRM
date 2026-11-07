@@ -34,6 +34,7 @@ describe('ClientsService', () => {
     >(),
     removeManager: jest.fn<Promise<boolean>, Parameters<ClientsRepository['removeManager']>>(),
     isAssigned: jest.fn<Promise<boolean>, Parameters<ClientsRepository['isAssigned']>>(),
+    countOpenTasks: jest.fn<Promise<number>, Parameters<ClientsRepository['countOpenTasks']>>(),
   };
 
   const usersService = {
@@ -425,34 +426,70 @@ describe('ClientsService', () => {
   });
 
   describe('removeManager', () => {
-    it('lets a manager remove a colleague', async () => {
+    beforeEach(() => {
       clientsRepository.findById.mockResolvedValue(aClient);
+      clientsRepository.isAssigned.mockResolvedValue(true);
+      clientsRepository.countOpenTasks.mockResolvedValue(0);
       clientsRepository.removeManager.mockResolvedValue(true);
+    });
 
+    it('lets a manager remove a colleague who has no open tasks', async () => {
       await expect(service.removeManager(5, 9, manager)).resolves.toBeUndefined();
+
+      expect(clientsRepository.countOpenTasks).toHaveBeenCalledWith(5, 9);
       expect(clientsRepository.removeManager).toHaveBeenCalledWith(5, 9);
     });
 
     it('lets a manager remove themselves', async () => {
-      clientsRepository.findById.mockResolvedValue(aClient);
-      clientsRepository.removeManager.mockResolvedValue(true);
-
       await service.removeManager(5, manager.sub, manager);
 
       expect(clientsRepository.removeManager).toHaveBeenCalledWith(5, manager.sub);
     });
 
-    it('answers 404 when that user is not assigned', async () => {
-      clientsRepository.findById.mockResolvedValue(aClient);
-      clientsRepository.removeManager.mockResolvedValue(false);
+    it('answers 409 with the number of open tasks and removes nobody', async () => {
+      clientsRepository.countOpenTasks.mockResolvedValue(3);
+
+      await expect(service.removeManager(5, 9, manager)).rejects.toThrow(ConflictException);
+      await expect(service.removeManager(5, 9, manager)).rejects.toThrow(/3 open task/);
+      expect(clientsRepository.removeManager).not.toHaveBeenCalled();
+    });
+
+    it('applies the same rule when a manager removes themselves', async () => {
+      clientsRepository.countOpenTasks.mockResolvedValue(1);
+
+      await expect(service.removeManager(5, manager.sub, manager)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(clientsRepository.removeManager).not.toHaveBeenCalled();
+    });
+
+    it('applies the same rule when an admin removes a manager', async () => {
+      clientsRepository.countOpenTasks.mockResolvedValue(2);
+
+      await expect(service.removeManager(5, 9, admin)).rejects.toThrow(ConflictException);
+      expect(clientsRepository.removeManager).not.toHaveBeenCalled();
+    });
+
+    it('applies the same rule to the last manager, so the client cannot return to the pool with open tasks', async () => {
+      clientsRepository.countOpenTasks.mockResolvedValue(1);
+      clientsRepository.findManagers.mockResolvedValue([link(9)]);
+
+      await expect(service.removeManager(5, 9, manager)).rejects.toThrow(ConflictException);
+    });
+
+    it('answers 404, without counting tasks, when that user is not assigned', async () => {
+      clientsRepository.isAssigned.mockResolvedValue(false);
 
       await expect(service.removeManager(5, 9, manager)).rejects.toThrow(NotFoundException);
+      expect(clientsRepository.countOpenTasks).not.toHaveBeenCalled();
+      expect(clientsRepository.removeManager).not.toHaveBeenCalled();
     });
 
     it('answers 404 and changes nothing when the actor cannot see the client', async () => {
       clientsRepository.findById.mockResolvedValue(null);
 
       await expect(service.removeManager(5, 9, manager)).rejects.toThrow(NotFoundException);
+      expect(clientsRepository.isAssigned).not.toHaveBeenCalled();
       expect(clientsRepository.removeManager).not.toHaveBeenCalled();
     });
   });

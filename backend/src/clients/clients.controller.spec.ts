@@ -356,6 +356,17 @@ describe('ClientsController (HTTP, no database)', () => {
       expect(res.status).toBe(404);
     });
 
+    it('answers 409 when the manager still has open tasks', async () => {
+      clientsService.removeManager.mockRejectedValue(
+        new ConflictException('This manager still has 2 open task(s) on this client'),
+      );
+
+      const res = await request(app.getHttpServer()).delete('/clients/5/managers/9');
+
+      expect(res.status).toBe(409);
+      expect(res.body).toHaveProperty('message', expect.stringContaining('open task'));
+    });
+
     it('rejects a non-numeric user id with 400', async () => {
       const res = await request(app.getHttpServer()).delete('/clients/5/managers/abc');
 

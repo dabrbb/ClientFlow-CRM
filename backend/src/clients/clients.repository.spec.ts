@@ -12,6 +12,9 @@ describe('ClientsRepository', () => {
       count: jest.fn<Promise<number>, [Prisma.ClientCountArgs]>(),
       findFirst: jest.fn<Promise<Client | null>, [Prisma.ClientFindFirstArgs]>(),
     },
+    task: {
+      count: jest.fn<Promise<number>, [Prisma.TaskCountArgs]>(),
+    },
     clientManager: {
       count: jest.fn<Promise<number>, [Prisma.ClientManagerCountArgs]>(),
       create: jest.fn<Promise<unknown>, [Prisma.ClientManagerCreateArgs]>(),
@@ -300,6 +303,20 @@ describe('ClientsRepository', () => {
       prisma.clientManager.count.mockResolvedValue(0);
 
       await expect(repository.isAssigned(5, 9)).resolves.toBe(false);
+    });
+  });
+  describe('countOpenTasks', () => {
+    it('counts TODO and IN_PROGRESS tasks of the user on the deals of that client only', async () => {
+      prisma.task.count.mockResolvedValue(2);
+
+      await expect(repository.countOpenTasks(5, 9)).resolves.toBe(2);
+      expect(prisma.task.count).toHaveBeenCalledWith({
+        where: {
+          assigneeId: 9,
+          status: { in: ['TODO', 'IN_PROGRESS'] },
+          deal: { clientId: 5 },
+        },
+      });
     });
   });
 });
