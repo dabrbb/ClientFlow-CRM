@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { Client, ClientStatus, DealStage } from '@prisma/client';
+import { Client, ClientStatus, DealStage, Role } from '@prisma/client';
+import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { ClientsService } from 'src/clients/clients.service';
 import { DealsRepository, DealWithClient } from './deals.repository';
 import { DealsService } from './deals.service';
@@ -10,6 +11,9 @@ import { UpdateDealDto } from './dto/update-deal.dto';
 
 describe('DealsService', () => {
   let service: DealsService;
+
+  const manager: JwtPayload = { sub: 7, email: 'manager@example.com', role: Role.MANAGER };
+  const admin: JwtPayload = { sub: 1, email: 'admin@example.com', role: Role.ADMIN };
 
   const dealsRepository = {
     create: jest.fn<ReturnType<DealsRepository['create']>, Parameters<DealsRepository['create']>>(),
@@ -25,9 +29,9 @@ describe('DealsService', () => {
   };
 
   const clientsService = {
-    getClientById: jest.fn<
-      ReturnType<ClientsService['getClientById']>,
-      Parameters<ClientsService['getClientById']>
+    getClientForActor: jest.fn<
+      ReturnType<ClientsService['getClientForActor']>,
+      Parameters<ClientsService['getClientForActor']>
     >(),
   };
 
@@ -68,7 +72,7 @@ describe('DealsService', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
-    clientsService.getClientById.mockResolvedValue(makeClient());
+    clientsService.getClientForActor.mockResolvedValue(makeClient());
     dealsRepository.create.mockResolvedValue(makeDeal());
     dealsRepository.findById.mockResolvedValue(makeDeal());
     dealsRepository.update.mockResolvedValue(makeDeal());
@@ -86,17 +90,17 @@ describe('DealsService', () => {
 
   describe('createDeal', () => {
     it('checks that the client exists and creates nothing if it does not', async () => {
-      clientsService.getClientById.mockRejectedValue(new NotFoundException('Client not found'));
+      clientsService.getClientForActor.mockRejectedValue(new NotFoundException('Client not found'));
 
-      await expect(service.createDeal(createDto({ clientId: 999 }))).rejects.toThrow(
+      await expect(service.createDeal(createDto({ clientId: 999 }), manager)).rejects.toThrow(
         new NotFoundException('Client not found'),
       );
-      expect(clientsService.getClientById).toHaveBeenCalledWith(999);
+      expect(clientsService.getClientForActor).toHaveBeenCalledWith(999, manager);
       expect(dealsRepository.create).not.toHaveBeenCalled();
     });
 
     it('builds the Prisma input from the DTO and connects the client', async () => {
-      await service.createDeal(createDto({ value: 1500, stage: DealStage.NEGOTIATION }));
+      await service.createDeal(createDto({ value: 1500, stage: DealStage.NEGOTIATION }), manager);
 
       expect(createdData()).toEqual({
         title: 'Big deal',
@@ -108,19 +112,19 @@ describe('DealsService', () => {
     });
 
     it('turns a YYYY-MM-DD string into midnight UTC of that day', async () => {
-      await service.createDeal(createDto({ expectedCloseDate: '2026-11-02' }));
+      await service.createDeal(createDto({ expectedCloseDate: '2026-11-02' }), manager);
 
       expect(createdData().expectedCloseDate).toEqual(new Date('2026-11-02T00:00:00.000Z'));
     });
 
     it('sends nothing for a missing date, so the column stays null', async () => {
-      await service.createDeal(createDto());
+      await service.createDeal(createDto(), manager);
 
       expect(createdData().expectedCloseDate).toBeUndefined();
     });
 
     it('sends null for an explicit null', async () => {
-      await service.createDeal(createDto({ expectedCloseDate: null }));
+      await service.createDeal(createDto({ expectedCloseDate: null }), manager);
 
       expect(createdData().expectedCloseDate).toBeNull();
     });
@@ -130,7 +134,10 @@ describe('DealsService', () => {
         makeDeal({ expectedCloseDate: new Date('2026-11-02T00:00:00.000Z') }),
       );
 
-      const result = await service.createDeal(createDto({ expectedCloseDate: '2026-11-02' }));
+      const result = await service.createDeal(
+        createDto({ expectedCloseDate: '2026-11-02' }),
+        manager,
+      );
 
       expect(result).toBeInstanceOf(DealResponseDto);
       expect(result.expectedCloseDate).toBe('2026-11-02');
@@ -141,33 +148,33 @@ describe('DealsService', () => {
     it('answers NotFoundException and updates nothing for a missing deal', async () => {
       dealsRepository.findById.mockResolvedValue(null);
 
-      await expect(service.updateDeal(999, updateDto({ title: 'New title' }))).rejects.toThrow(
-        new NotFoundException('Deal not found'),
-      );
+      await expect(
+        service.updateDeal(999, updateDto({ title: 'New title' }), manager),
+      ).rejects.toThrow(new NotFoundException('Deal not found'));
       expect(dealsRepository.update).not.toHaveBeenCalled();
     });
 
     it('leaves the date alone when it was not sent', async () => {
-      await service.updateDeal(5, updateDto({ title: 'New title' }));
+      await service.updateDeal(5, updateDto({ title: 'New title' }), manager);
 
       expect(updatedData()).toMatchObject({ title: 'New title' });
       expect(updatedData().expectedCloseDate).toBeUndefined();
     });
 
     it('clears the date when null is sent', async () => {
-      await service.updateDeal(5, updateDto({ expectedCloseDate: null }));
+      await service.updateDeal(5, updateDto({ expectedCloseDate: null }), manager);
 
       expect(updatedData().expectedCloseDate).toBeNull();
     });
 
     it('turns a YYYY-MM-DD string into midnight UTC of that day', async () => {
-      await service.updateDeal(5, updateDto({ expectedCloseDate: '2026-12-31' }));
+      await service.updateDeal(5, updateDto({ expectedCloseDate: '2026-12-31' }), manager);
 
       expect(updatedData().expectedCloseDate).toEqual(new Date('2026-12-31T00:00:00.000Z'));
     });
 
     it('can change only the date', async () => {
-      await service.updateDeal(5, updateDto({ expectedCloseDate: '2026-11-02' }));
+      await service.updateDeal(5, updateDto({ expectedCloseDate: '2026-11-02' }), manager);
 
       const data = updatedData();
       expect(data.title).toBeUndefined();
@@ -176,7 +183,11 @@ describe('DealsService', () => {
     });
 
     it('still passes title, value and stage', async () => {
-      await service.updateDeal(5, updateDto({ title: 'New', value: 10, stage: DealStage.WON }));
+      await service.updateDeal(
+        5,
+        updateDto({ title: 'New', value: 10, stage: DealStage.WON }),
+        manager,
+      );
 
       expect(updatedData()).toMatchObject({ title: 'New', value: 10, stage: DealStage.WON });
     });
@@ -211,7 +222,7 @@ describe('DealsService', () => {
       dealsRepository.findById.mockResolvedValue(makeDeal({ stage: from }));
       dealsRepository.update.mockResolvedValue(makeDeal({ stage: to }));
 
-      const result = service.updateDeal(5, updateDto({ stage: to }));
+      const result = service.updateDeal(5, updateDto({ stage: to }), manager);
 
       if (isAllowed) {
         await expect(result).resolves.toHaveProperty('stage', to);
@@ -226,7 +237,7 @@ describe('DealsService', () => {
     it('answers 409 and says which stages are involved', async () => {
       dealsRepository.findById.mockResolvedValue(makeDeal({ stage: DealStage.WON }));
 
-      const result = service.updateDeal(5, updateDto({ stage: DealStage.NEW }));
+      const result = service.updateDeal(5, updateDto({ stage: DealStage.NEW }), manager);
 
       await expect(result).rejects.toThrow(
         new ConflictException('A WON deal cannot move to NEW: WON and LOST are final stages'),
@@ -237,13 +248,13 @@ describe('DealsService', () => {
     it('names the stages of the actual request', async () => {
       dealsRepository.findById.mockResolvedValue(makeDeal({ stage: DealStage.LOST }));
 
-      await expect(service.updateDeal(5, updateDto({ stage: DealStage.WON }))).rejects.toThrow(
-        'A LOST deal cannot move to WON: WON and LOST are final stages',
-      );
+      await expect(
+        service.updateDeal(5, updateDto({ stage: DealStage.WON }), manager),
+      ).rejects.toThrow('A LOST deal cannot move to WON: WON and LOST are final stages');
     });
 
     it('reads the deal only once', async () => {
-      await service.updateDeal(5, updateDto({ stage: DealStage.WON }));
+      await service.updateDeal(5, updateDto({ stage: DealStage.WON }), manager);
 
       expect(dealsRepository.findById).toHaveBeenCalledTimes(1);
     });
@@ -256,8 +267,9 @@ describe('DealsService', () => {
         await service.updateDeal(
           5,
           updateDto({ title: 'New title', value: 10, expectedCloseDate: '2026-11-02' }),
+          manager,
         );
-        await service.updateDeal(5, updateDto({ expectedCloseDate: null }));
+        await service.updateDeal(5, updateDto({ expectedCloseDate: null }), manager);
 
         expect(dealsRepository.update).toHaveBeenCalledTimes(2);
         expect(dealsRepository.update.mock.calls[0][1]).toMatchObject({
@@ -273,7 +285,7 @@ describe('DealsService', () => {
       async (stage) => {
         dealsRepository.findById.mockResolvedValue(makeDeal({ stage }));
 
-        await service.updateDeal(5, updateDto({ title: 'New title', stage }));
+        await service.updateDeal(5, updateDto({ title: 'New title', stage }), manager);
 
         expect(updatedData()).toMatchObject({ title: 'New title', stage });
       },
@@ -283,7 +295,7 @@ describe('DealsService', () => {
       dealsRepository.findById.mockResolvedValue(makeDeal({ stage: DealStage.WON }));
 
       await expect(
-        service.updateDeal(5, updateDto({ title: 'New title', stage: DealStage.NEW })),
+        service.updateDeal(5, updateDto({ title: 'New title', stage: DealStage.NEW }), manager),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(dealsRepository.update).not.toHaveBeenCalled();
     });
@@ -292,7 +304,7 @@ describe('DealsService', () => {
       dealsRepository.findById.mockResolvedValue(null);
 
       await expect(
-        service.updateDeal(999, updateDto({ stage: DealStage.NEW })),
+        service.updateDeal(999, updateDto({ stage: DealStage.NEW }), manager),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(dealsRepository.update).not.toHaveBeenCalled();
     });
@@ -300,7 +312,7 @@ describe('DealsService', () => {
 
   describe('createDeal stages', () => {
     it.each(Object.values(DealStage))('accepts %s as the first stage', async (stage) => {
-      await service.createDeal(createDto({ stage }));
+      await service.createDeal(createDto({ stage }), manager);
 
       expect(createdData()).toMatchObject({ stage });
       expect(dealsRepository.findById).not.toHaveBeenCalled();
@@ -309,7 +321,7 @@ describe('DealsService', () => {
 
   describe('responses', () => {
     it('show null for a deal that has no date, as every old row will', async () => {
-      const result = await service.getDealById(5);
+      const result = await service.getDealForActor(5, manager);
 
       expect(result.expectedCloseDate).toBeNull();
       expect(JSON.parse(JSON.stringify(result))).toHaveProperty('expectedCloseDate', null);
@@ -320,7 +332,7 @@ describe('DealsService', () => {
         makeDeal({ expectedCloseDate: new Date('2026-11-02T00:00:00.000Z') }),
       );
 
-      const result = await service.getDealById(5);
+      const result = await service.getDealForActor(5, manager);
 
       expect(result.expectedCloseDate).toBe('2026-11-02');
       expect(JSON.parse(JSON.stringify(result))).toHaveProperty('expectedCloseDate', '2026-11-02');
@@ -332,7 +344,7 @@ describe('DealsService', () => {
         makeDeal({ id: 1 }),
       ]);
 
-      const result = await service.getAllDeals();
+      const result = await service.getAllDeals(manager);
 
       expect(result.map((deal) => deal.expectedCloseDate)).toEqual(['2026-12-31', null]);
     });
@@ -342,9 +354,106 @@ describe('DealsService', () => {
         makeDeal({ expectedCloseDate: new Date('2026-01-01T00:00:00.000Z') }),
       );
 
-      const result = await service.updateDeal(5, updateDto({ expectedCloseDate: '2026-01-01' }));
+      const result = await service.updateDeal(
+        5,
+        updateDto({ expectedCloseDate: '2026-01-01' }),
+        manager,
+      );
 
       expect(result.expectedCloseDate).toBe('2026-01-01');
+    });
+  });
+
+  describe('who may see which deal', () => {
+    describe('getDealForActor', () => {
+      it('looks a deal up for a manager only among deals of their own clients', async () => {
+        await service.getDealForActor(5, manager);
+
+        expect(dealsRepository.findById).toHaveBeenCalledWith(5, manager.sub);
+      });
+
+      it('looks a deal up for an admin among all deals', async () => {
+        await service.getDealForActor(5, admin);
+
+        expect(dealsRepository.findById).toHaveBeenCalledWith(5, undefined);
+      });
+
+      it('reports a deal the actor cannot see as not found', async () => {
+        dealsRepository.findById.mockResolvedValue(null);
+
+        await expect(service.getDealForActor(5, manager)).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('getDealById (internal, unrestricted)', () => {
+      it('looks the deal up by id alone', async () => {
+        await service.getDealById(5);
+
+        expect(dealsRepository.findById).toHaveBeenCalledWith(5);
+      });
+
+      it('throws not found for a missing deal', async () => {
+        dealsRepository.findById.mockResolvedValue(null);
+
+        await expect(service.getDealById(5)).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('getAllDeals', () => {
+      it('restricts a manager to deals of their own clients', async () => {
+        dealsRepository.findAll.mockResolvedValue([]);
+
+        await service.getAllDeals(manager);
+
+        expect(dealsRepository.findAll).toHaveBeenCalledWith({ managerId: manager.sub });
+      });
+
+      it('does not restrict an admin', async () => {
+        dealsRepository.findAll.mockResolvedValue([]);
+
+        await service.getAllDeals(admin);
+
+        expect(dealsRepository.findAll).toHaveBeenCalledWith({ managerId: undefined });
+      });
+    });
+
+    describe('updateDeal', () => {
+      it("finds the deal among the manager's own and updates it", async () => {
+        await service.updateDeal(5, updateDto({ title: 'New' }), manager);
+
+        expect(dealsRepository.findById).toHaveBeenCalledWith(5, manager.sub);
+        expect(dealsRepository.update).toHaveBeenCalledTimes(1);
+      });
+
+      it('lets an admin update any deal', async () => {
+        await service.updateDeal(5, updateDto({ title: 'New' }), admin);
+
+        expect(dealsRepository.findById).toHaveBeenCalledWith(5, undefined);
+        expect(dealsRepository.update).toHaveBeenCalledTimes(1);
+      });
+
+      it("answers 404 and changes nothing for someone else's deal", async () => {
+        dealsRepository.findById.mockResolvedValue(null);
+
+        await expect(service.updateDeal(5, updateDto({ title: 'New' }), manager)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(dealsRepository.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('createDeal', () => {
+      it('checks the actor may see the client, and creates nothing if not', async () => {
+        clientsService.getClientForActor.mockRejectedValue(
+          new NotFoundException('Client not found'),
+        );
+
+        await expect(service.createDeal(createDto({ clientId: 8 }), manager)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(clientsService.getClientForActor).toHaveBeenCalledWith(8, manager);
+        expect(dealsRepository.create).not.toHaveBeenCalled();
+      });
     });
   });
 });

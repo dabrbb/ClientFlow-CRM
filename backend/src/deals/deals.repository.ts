@@ -8,9 +8,22 @@ export type DealWithClient = Prisma.DealGetPayload<{
   };
 }>;
 
+export interface DealFilters {
+  // Only deals of clients this user is assigned to. Left undefined, nothing is restricted.
+  managerId?: number;
+}
+
 @Injectable()
 export class DealsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  private assignedTo(managerId: number): Prisma.DealWhereInput {
+    return { client: { managers: { some: { userId: managerId } } } };
+  }
+
+  private buildWhere({ managerId }: DealFilters): Prisma.DealWhereInput {
+    return managerId === undefined ? {} : this.assignedTo(managerId);
+  }
 
   async create(data: Prisma.DealCreateInput): Promise<DealWithClient> {
     return this.prisma.deal.create({
@@ -22,9 +35,9 @@ export class DealsRepository {
     });
   }
 
-  async findById(id: number): Promise<DealWithClient | null> {
-    return this.prisma.deal.findUnique({
-      where: { id },
+  async findById(id: number, managerId?: number): Promise<DealWithClient | null> {
+    return this.prisma.deal.findFirst({
+      where: { id, ...this.buildWhere({ managerId }) },
 
       include: {
         client: true,
@@ -32,8 +45,9 @@ export class DealsRepository {
     });
   }
 
-  async findAll(): Promise<DealWithClient[]> {
+  async findAll(filters: DealFilters = {}): Promise<DealWithClient[]> {
     return this.prisma.deal.findMany({
+      where: this.buildWhere(filters),
       include: {
         client: true,
       },

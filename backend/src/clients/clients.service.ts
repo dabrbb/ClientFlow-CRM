@@ -1,7 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ClientsRepository } from './clients.repository';
 import { UsersService } from 'src/users/users.service';
-import { Client, Prisma, Role } from '@prisma/client';
+import { Client, Prisma } from '@prisma/client';
+import { managerScope } from 'src/common/access/manager-scope';
 import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { GetClientsQueryDto } from './dto/get-clients-query.dto';
 import { ClientResponseDto } from './dto/clients-response.dto';
@@ -16,12 +17,6 @@ export class ClientsService {
     private readonly clientsRepository: ClientsRepository,
     private readonly usersService: UsersService,
   ) {}
-
-  // An admin sees every client; a manager only the ones they are assigned to.
-  // undefined means "no restriction" for the repository.
-  private visibleTo(actor: JwtPayload): number | undefined {
-    return actor.role === Role.ADMIN ? undefined : actor.sub;
-  }
 
   // The creator is stored for the record only: the client lands in the pool until a manager
   // is assigned, so no ClientManager row is created here.
@@ -46,7 +41,7 @@ export class ClientsService {
 
   // A client the actor may not see is reported as missing, so its existence is not revealed.
   async getClientForActor(id: number, actor: JwtPayload): Promise<Client> {
-    const client = await this.clientsRepository.findById(id, this.visibleTo(actor));
+    const client = await this.clientsRepository.findById(id, managerScope(actor));
 
     if (!client) {
       throw new NotFoundException('Client not found');
@@ -65,7 +60,7 @@ export class ClientsService {
       status,
       // Date-only strings parse as UTC midnight; the DTO guarantees every date-time has Z/offset.
       createdAfter: createdAfter ? new Date(createdAfter) : undefined,
-      managerId: this.visibleTo(actor),
+      managerId: managerScope(actor),
     };
 
     const [clients, total] = await Promise.all([

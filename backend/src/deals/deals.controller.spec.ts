@@ -1,9 +1,16 @@
-import { INestApplication, NotFoundException, ValidationPipe } from '@nestjs/common';
+import {
+  ExecutionContext,
+  INestApplication,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { Client, ClientStatus, DealStage } from '@prisma/client';
+import { Client, ClientStatus, DealStage, Role } from '@prisma/client';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import type { AuthenticatedRequest } from 'src/auth/interfaces/authenticated-request.interface';
+import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { ClientsService } from 'src/clients/clients.service';
 import { DealsController } from './deals.controller';
 import { DealsRepository, DealWithClient } from './deals.repository';
@@ -13,6 +20,7 @@ import { DealsService } from './deals.service';
 // ClientsService are mocks and the auth guard is replaced, so no database or token is involved.
 describe('DealsController (HTTP, no database)', () => {
   let app: INestApplication<App>;
+  let signedInUser: JwtPayload;
 
   const dealsRepository = {
     create: jest.fn<ReturnType<DealsRepository['create']>, Parameters<DealsRepository['create']>>(),
@@ -28,9 +36,9 @@ describe('DealsController (HTTP, no database)', () => {
   };
 
   const clientsService = {
-    getClientById: jest.fn<
-      ReturnType<ClientsService['getClientById']>,
-      Parameters<ClientsService['getClientById']>
+    getClientForActor: jest.fn<
+      ReturnType<ClientsService['getClientForActor']>,
+      Parameters<ClientsService['getClientForActor']>
     >(),
   };
 
@@ -79,7 +87,12 @@ describe('DealsController (HTTP, no database)', () => {
       ],
     })
       .overrideGuard(JwtAuthGuard)
-      .useValue({ canActivate: () => true })
+      .useValue({
+        canActivate: (context: ExecutionContext) => {
+          context.switchToHttp().getRequest<AuthenticatedRequest>().user = signedInUser;
+          return true;
+        },
+      })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -96,11 +109,12 @@ describe('DealsController (HTTP, no database)', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    signedInUser = { sub: 7, email: 'manager@example.com', role: Role.MANAGER };
   });
 
   describe('POST /deals', () => {
     beforeEach(() => {
-      clientsService.getClientById.mockResolvedValue(makeClient());
+      clientsService.getClientForActor.mockResolvedValue(makeClient());
       dealsRepository.create.mockResolvedValue(makeDeal());
     });
 
@@ -113,7 +127,7 @@ describe('DealsController (HTTP, no database)', () => {
       expect(res.body).toMatchObject(publicDeal);
       // toHaveProperty with a value compares the whole object, so no extra client field can slip in.
       expect(res.body).toHaveProperty('client', publicDeal.client);
-      expect(clientsService.getClientById).toHaveBeenCalledWith(3);
+      expect(clientsService.getClientForActor).toHaveBeenCalledWith(3, signedInUser);
       expect(dealsRepository.create.mock.calls[0][0]).toEqual({
         title: 'Big deal',
         client: { connect: { id: 3 } },
@@ -134,7 +148,7 @@ describe('DealsController (HTTP, no database)', () => {
     });
 
     it('answers 404 and creates nothing when the client does not exist', async () => {
-      clientsService.getClientById.mockRejectedValue(new NotFoundException('Client not found'));
+      clientsService.getClientForActor.mockRejectedValue(new NotFoundException('Client not found'));
 
       const res = await request(app.getHttpServer())
         .post('/deals')
@@ -165,7 +179,7 @@ describe('DealsController (HTTP, no database)', () => {
       const res = await request(app.getHttpServer()).post('/deals').send(body);
 
       expect(res.status).toBe(400);
-      expect(clientsService.getClientById).not.toHaveBeenCalled();
+      expect(clientsService.getClientForActor).not.toHaveBeenCalled();
       expect(dealsRepository.create).not.toHaveBeenCalled();
     });
   });
@@ -176,7 +190,7 @@ describe('DealsController (HTTP, no database)', () => {
     const updatedData = () => dealsRepository.update.mock.calls[0][1];
 
     beforeEach(() => {
-      clientsService.getClientById.mockResolvedValue(makeClient());
+      clientsService.getClientForActor.mockResolvedValue(makeClient());
       dealsRepository.create.mockResolvedValue(datedDeal());
       dealsRepository.findById.mockResolvedValue(makeDeal());
       dealsRepository.update.mockResolvedValue(datedDeal());
@@ -239,7 +253,7 @@ describe('DealsController (HTTP, no database)', () => {
         .send({ title: 'Big deal', clientId: 3, expectedCloseDate: value });
 
       expect(res.status).toBe(400);
-      expect(clientsService.getClientById).not.toHaveBeenCalled();
+      expect(clientsService.getClientForActor).not.toHaveBeenCalled();
       expect(dealsRepository.create).not.toHaveBeenCalled();
     });
 
@@ -325,7 +339,7 @@ describe('DealsController (HTTP, no database)', () => {
 
   describe('stage: null over HTTP', () => {
     beforeEach(() => {
-      clientsService.getClientById.mockResolvedValue(makeClient());
+      clientsService.getClientForActor.mockResolvedValue(makeClient());
       dealsRepository.create.mockResolvedValue(makeDeal());
       dealsRepository.findById.mockResolvedValue(makeDeal());
       dealsRepository.update.mockResolvedValue(makeDeal());
@@ -340,7 +354,7 @@ describe('DealsController (HTTP, no database)', () => {
       expect(res.body).toHaveProperty('message', [
         'stage must be one of the following values: NEW, QUALIFICATION, NEGOTIATION, WON, LOST',
       ]);
-      expect(clientsService.getClientById).not.toHaveBeenCalled();
+      expect(clientsService.getClientForActor).not.toHaveBeenCalled();
       expect(dealsRepository.create).not.toHaveBeenCalled();
     });
 
@@ -485,7 +499,7 @@ describe('DealsController (HTTP, no database)', () => {
     });
 
     it.each(Object.values(DealStage))('POST still creates a deal in %s', async (stage) => {
-      clientsService.getClientById.mockResolvedValue(makeClient());
+      clientsService.getClientForActor.mockResolvedValue(makeClient());
       dealsRepository.create.mockResolvedValue(makeDeal({ stage }));
 
       const res = await request(app.getHttpServer())
@@ -525,7 +539,7 @@ describe('DealsController (HTTP, no database)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject(publicDeal);
-      expect(dealsRepository.findById).toHaveBeenCalledWith(5);
+      expect(dealsRepository.findById).toHaveBeenCalledWith(5, signedInUser.sub);
     });
 
     it('answers 404 for a missing deal', async () => {
@@ -608,6 +622,65 @@ describe('DealsController (HTTP, no database)', () => {
 
       expect(res.status).toBe(400);
       expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('who sees which deals over HTTP', () => {
+    it("GET /deals asks only for the deals of the manager's own clients", async () => {
+      dealsRepository.findAll.mockResolvedValue([]);
+
+      await request(app.getHttpServer()).get('/deals');
+
+      expect(dealsRepository.findAll).toHaveBeenCalledWith({ managerId: 7 });
+    });
+
+    it('GET /deals asks for every deal when an admin is signed in', async () => {
+      signedInUser = { sub: 1, email: 'admin@example.com', role: Role.ADMIN };
+      dealsRepository.findAll.mockResolvedValue([]);
+
+      await request(app.getHttpServer()).get('/deals');
+
+      expect(dealsRepository.findAll).toHaveBeenCalledWith({ managerId: undefined });
+    });
+
+    it('GET /deals/:id of a client the manager is not assigned to is a 404', async () => {
+      dealsRepository.findById.mockResolvedValue(null);
+
+      const res = await request(app.getHttpServer()).get('/deals/5');
+
+      expect(res.status).toBe(404);
+      expect(dealsRepository.findById).toHaveBeenCalledWith(5, 7);
+    });
+
+    it('GET /deals/:id lets an admin read any deal', async () => {
+      signedInUser = { sub: 1, email: 'admin@example.com', role: Role.ADMIN };
+      dealsRepository.findById.mockResolvedValue(makeDeal());
+
+      const res = await request(app.getHttpServer()).get('/deals/5');
+
+      expect(res.status).toBe(200);
+      expect(dealsRepository.findById).toHaveBeenCalledWith(5, undefined);
+    });
+
+    it("PATCH /deals/:id of someone else's deal is a 404 and changes nothing", async () => {
+      dealsRepository.findById.mockResolvedValue(null);
+
+      const res = await request(app.getHttpServer()).patch('/deals/5').send({ title: 'Hacked' });
+
+      expect(res.status).toBe(404);
+      expect(dealsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('POST /deals for a client the manager cannot see is a 404 and creates nothing', async () => {
+      clientsService.getClientForActor.mockRejectedValue(new NotFoundException('Client not found'));
+
+      const res = await request(app.getHttpServer())
+        .post('/deals')
+        .send({ title: 'Sneaky deal', clientId: 8 });
+
+      expect(res.status).toBe(404);
+      expect(clientsService.getClientForActor).toHaveBeenCalledWith(8, signedInUser);
+      expect(dealsRepository.create).not.toHaveBeenCalled();
     });
   });
 });

@@ -9,7 +9,7 @@ describe('DealsRepository', () => {
   const prisma = {
     deal: {
       create: jest.fn<Promise<DealWithClient>, [Prisma.DealCreateArgs]>(),
-      findUnique: jest.fn<Promise<DealWithClient | null>, [Prisma.DealFindUniqueArgs]>(),
+      findFirst: jest.fn<Promise<DealWithClient | null>, [Prisma.DealFindFirstArgs]>(),
       findMany: jest.fn<Promise<DealWithClient[]>, [Prisma.DealFindManyArgs]>(),
       update: jest.fn<Promise<DealWithClient>, [Prisma.DealUpdateArgs]>(),
     },
@@ -39,7 +39,7 @@ describe('DealsRepository', () => {
   it('findById looks the deal up by id and includes the client', async () => {
     await repository.findById(5);
 
-    expect(prisma.deal.findUnique.mock.calls[0][0]).toEqual({
+    expect(prisma.deal.findFirst.mock.calls[0][0]).toEqual({
       where: { id: 5 },
       include: { client: true },
     });
@@ -51,6 +51,7 @@ describe('DealsRepository', () => {
     await repository.findAll();
 
     expect(prisma.deal.findMany.mock.calls[0][0]).toEqual({
+      where: {},
       include: { client: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -91,8 +92,55 @@ describe('DealsRepository', () => {
   });
 
   it('returns what Prisma returns', async () => {
-    prisma.deal.findUnique.mockResolvedValue(null);
+    prisma.deal.findFirst.mockResolvedValue(null);
 
     await expect(repository.findById(999)).resolves.toBeNull();
+  });
+
+  describe('managerId', () => {
+    const ofManager7 = { client: { managers: { some: { userId: 7 } } } };
+
+    it('findAll limits deals to clients assigned to that manager', async () => {
+      prisma.deal.findMany.mockResolvedValue([]);
+
+      await repository.findAll({ managerId: 7 });
+
+      expect(prisma.deal.findMany.mock.calls[0][0].where).toEqual(ofManager7);
+    });
+
+    it('findAll adds no restriction without a manager', async () => {
+      prisma.deal.findMany.mockResolvedValue([]);
+
+      await repository.findAll({ managerId: undefined });
+      await repository.findAll({});
+
+      expect(prisma.deal.findMany.mock.calls[0][0].where).toEqual({});
+      expect(prisma.deal.findMany.mock.calls[1][0].where).toEqual({});
+    });
+
+    it('findAll keeps manager id 0 as a real restriction', async () => {
+      prisma.deal.findMany.mockResolvedValue([]);
+
+      await repository.findAll({ managerId: 0 });
+
+      expect(prisma.deal.findMany.mock.calls[0][0].where).toEqual({
+        client: { managers: { some: { userId: 0 } } },
+      });
+    });
+
+    it('findById also requires the manager to be assigned to the deal client', async () => {
+      await repository.findById(5, 7);
+
+      expect(prisma.deal.findFirst.mock.calls[0][0]).toEqual({
+        where: { id: 5, ...ofManager7 },
+        include: { client: true },
+      });
+    });
+
+    it('findById looks up by id alone without a manager', async () => {
+      await repository.findById(5);
+
+      expect(prisma.deal.findFirst.mock.calls[0][0].where).toEqual({ id: 5 });
+    });
   });
 });
