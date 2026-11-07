@@ -1,5 +1,14 @@
 import { TaskStatus } from '@prisma/client';
-import { IsDateString, IsEnum, IsOptional, IsString, Length } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Length,
+  ValidateIf,
+} from 'class-validator';
 
 export class UpdateTaskDto {
   @IsOptional()
@@ -19,4 +28,10 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsDateString()
   dueDate?: string | null;
+
+  // ValidateIf instead of IsOptional: the assignee column is required, so null must be a 400.
+  @ValidateIf((_, value) => value !== undefined)
+  @IsInt()
+  @IsPositive()
+  assigneeId?: number;
 }

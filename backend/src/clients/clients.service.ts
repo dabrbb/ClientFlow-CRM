@@ -27,18 +27,6 @@ export class ClientsService {
     });
   }
 
-  // Unrestricted lookup for internal checks that a client exists (deals use it for now).
-  // Endpoints must use getClientForActor instead.
-  async getClientById(id: number): Promise<Client | null> {
-    const client = await this.clientsRepository.findById(id);
-
-    if (!client) {
-      throw new NotFoundException('Client not found');
-    }
-
-    return client;
-  }
-
   // A client the actor may not see is reported as missing, so its existence is not revealed.
   async getClientForActor(id: number, actor: JwtPayload): Promise<Client> {
     const client = await this.clientsRepository.findById(id, managerScope(actor));
@@ -85,6 +73,11 @@ export class ClientsService {
     await this.getClientForActor(id, actor);
 
     return this.clientsRepository.update(id, data);
+  }
+
+  // Whether a user is one of the client's managers. Used to check who a task may be given to.
+  async isAssigned(clientId: number, userId: number): Promise<boolean> {
+    return this.clientsRepository.isAssigned(clientId, userId);
   }
 
   async getPool(query: GetPoolQueryDto): Promise<PoolResponseDto> {

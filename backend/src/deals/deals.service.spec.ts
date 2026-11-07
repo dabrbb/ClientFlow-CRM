@@ -385,20 +385,6 @@ describe('DealsService', () => {
       });
     });
 
-    describe('getDealById (internal, unrestricted)', () => {
-      it('looks the deal up by id alone', async () => {
-        await service.getDealById(5);
-
-        expect(dealsRepository.findById).toHaveBeenCalledWith(5);
-      });
-
-      it('throws not found for a missing deal', async () => {
-        dealsRepository.findById.mockResolvedValue(null);
-
-        await expect(service.getDealById(5)).rejects.toThrow(NotFoundException);
-      });
-    });
-
     describe('getAllDeals', () => {
       it('restricts a manager to deals of their own clients', async () => {
         dealsRepository.findAll.mockResolvedValue([]);

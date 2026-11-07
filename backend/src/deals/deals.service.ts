@@ -32,18 +32,6 @@ export class DealsService {
     return new DealResponseDto(deal);
   }
 
-  // Unrestricted lookup for internal existence checks (tasks use it for now).
-  // Endpoints must use getDealForActor instead.
-  async getDealById(id: number): Promise<DealResponseDto> {
-    const deal = await this.dealsRepository.findById(id);
-
-    if (!deal) {
-      throw new NotFoundException('Deal not found');
-    }
-
-    return new DealResponseDto(deal);
-  }
-
   // A deal the actor may not see is reported as missing, so its existence is not revealed.
   async getDealForActor(id: number, actor: JwtPayload): Promise<DealResponseDto> {
     const deal = await this.dealsRepository.findById(id, managerScope(actor));

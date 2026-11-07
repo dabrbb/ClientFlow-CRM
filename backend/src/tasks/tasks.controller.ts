@@ -25,30 +25,35 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
-  async create(@Body() dto: CreateTaskDto) {
-    return this.tasksService.createTask(dto);
+  async create(@Body() dto: CreateTaskDto, @CurrentUser() user: JwtPayload) {
+    return this.tasksService.createTask(dto, user);
   }
 
   @Get()
   async findAll(@Query() query: GetTasksQueryDto, @CurrentUser() user: JwtPayload) {
-    return this.tasksService.getAllTasks({ assigneeId: query.mine ? user.sub : undefined });
+    return this.tasksService.getAllTasks(user, { assigneeId: query.mine ? user.sub : undefined });
   }
 
   @Get(':id')
-  async findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.tasksService.getTaskById(id);
+  async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
+    return this.tasksService.getTaskById(id, user);
   }
 
   @Patch(':id')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTaskDto) {
-    return this.tasksService.updateTask(id, dto);
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateTaskDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.tasksService.updateTask(id, dto, user);
   }
 
   @Patch(':id/status')
   async updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateTaskStatusDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<TaskResponseDto> {
-    return this.tasksService.updateTaskStatus(id, dto.status);
+    return this.tasksService.updateTaskStatus(id, dto.status, user);
   }
 }

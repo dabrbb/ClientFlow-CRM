@@ -25,17 +25,51 @@ export type TaskWithRelations = Prisma.TaskGetPayload<{
 
 export interface TaskFilters {
   assigneeId?: number;
+  // Only tasks this user may see. Left undefined, nothing is restricted.
+  visibleTo?: number;
 }
+
+const relations = {
+  assignee: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+    },
+  },
+  deal: {
+    select: {
+      id: true,
+      title: true,
+      stage: true,
+      value: true,
+    },
+  },
+} satisfies Prisma.TaskInclude;
 
 @Injectable()
 export class TasksRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildWhere({ assigneeId }: TaskFilters): Prisma.TaskWhereInput {
+  // A task with a deal belongs to the deal's client and is seen by everyone assigned to that
+  // client. A task without a deal belongs to nobody's client, so only its assignee sees it.
+  private visibleTo(userId: number): Prisma.TaskWhereInput[] {
+    return [
+      { deal: { client: { managers: { some: { userId } } } } },
+      { dealId: null, assigneeId: userId },
+    ];
+  }
+
+  private buildWhere({ assigneeId, visibleTo }: TaskFilters): Prisma.TaskWhereInput {
     const where: Prisma.TaskWhereInput = {};
 
     if (assigneeId !== undefined) {
       where.assigneeId = assigneeId;
+    }
+
+    if (visibleTo !== undefined) {
+      where.OR = this.visibleTo(visibleTo);
     }
 
     return where;
@@ -47,27 +81,10 @@ export class TasksRepository {
     });
   }
 
-  async findById(id: number): Promise<TaskWithRelations | null> {
-    return this.prisma.task.findUnique({
-      where: { id },
-      include: {
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-          },
-        },
-        deal: {
-          select: {
-            id: true,
-            title: true,
-            stage: true,
-            value: true,
-          },
-        },
-      },
+  async findById(id: number, visibleTo?: number): Promise<TaskWithRelations | null> {
+    return this.prisma.task.findFirst({
+      where: { id, ...this.buildWhere({ visibleTo }) },
+      include: relations,
     });
   }
 
@@ -75,24 +92,7 @@ export class TasksRepository {
     return this.prisma.task.findMany({
       where: this.buildWhere(filters),
       orderBy: { createdAt: 'desc' },
-      include: {
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-          },
-        },
-        deal: {
-          select: {
-            id: true,
-            title: true,
-            stage: true,
-            value: true,
-          },
-        },
-      },
+      include: relations,
     });
   }
 

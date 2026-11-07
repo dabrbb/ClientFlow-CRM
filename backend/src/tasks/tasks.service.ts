@@ -1,8 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Task, TaskStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, Role, Task, TaskStatus } from '@prisma/client';
 
+import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
+import { managerScope } from 'src/common/access/manager-scope';
+import { ClientsService } from 'src/clients/clients.service';
 import { UsersService } from 'src/users/users.service';
 import { DealsService } from 'src/deals/deals.service';
+import type { DealResponseDto } from 'src/deals/dto/deal-response.dto';
 
 import { TaskFilters, TasksRepository } from './tasks.repository';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -15,14 +24,37 @@ export class TasksService {
     private readonly tasksRepository: TasksRepository,
     private readonly usersService: UsersService,
     private readonly dealsService: DealsService,
+    private readonly clientsService: ClientsService,
   ) {}
 
-  async createTask(dto: CreateTaskDto): Promise<Task> {
-    await this.usersService.getUserById(dto.assigneeId);
+  // Who a task may be given to:
+  // - a task with a deal only to someone assigned to that deal's client, so the assignee can
+  //   always see it;
+  // - a task without a deal only to the actor themselves, unless the actor is an admin.
+  private async checkAssignee(
+    assigneeId: number,
+    deal: DealResponseDto | null,
+    actor: JwtPayload,
+  ): Promise<void> {
+    await this.usersService.getUserById(assigneeId);
 
-    if (dto.dealId !== undefined) {
-      await this.dealsService.getDealById(dto.dealId);
+    if (deal) {
+      if (!(await this.clientsService.isAssigned(deal.client.id, assigneeId))) {
+        throw new BadRequestException("The assignee is not assigned to this deal's client");
+      }
+      return;
     }
+
+    if (actor.role !== Role.ADMIN && assigneeId !== actor.sub) {
+      throw new ForbiddenException('A task without a deal can only be assigned to yourself');
+    }
+  }
+
+  async createTask(dto: CreateTaskDto, actor: JwtPayload): Promise<Task> {
+    const deal =
+      dto.dealId !== undefined ? await this.dealsService.getDealForActor(dto.dealId, actor) : null;
+
+    await this.checkAssignee(dto.assigneeId, deal, actor);
 
     const data: Prisma.TaskCreateInput = {
       title: dto.title,
@@ -38,8 +70,9 @@ export class TasksService {
     return this.tasksRepository.create(data);
   }
 
-  async getTaskById(id: number): Promise<TaskResponseDto> {
-    const task = await this.tasksRepository.findById(id);
+  // A task the actor may not see is reported as missing, so its existence is not revealed.
+  async getTaskById(id: number, actor: JwtPayload): Promise<TaskResponseDto> {
+    const task = await this.tasksRepository.findById(id, managerScope(actor));
 
     if (!task) {
       throw new NotFoundException('Task not found');
@@ -48,24 +81,44 @@ export class TasksService {
     return new TaskResponseDto(task);
   }
 
-  async getAllTasks(filters: TaskFilters = {}): Promise<TaskResponseDto[]> {
-    const tasks = await this.tasksRepository.findAll(filters);
+  async getAllTasks(
+    actor: JwtPayload,
+    filters: Pick<TaskFilters, 'assigneeId'> = {},
+  ): Promise<TaskResponseDto[]> {
+    const tasks = await this.tasksRepository.findAll({
+      ...filters,
+      visibleTo: managerScope(actor),
+    });
 
     return tasks.map((task) => new TaskResponseDto(task));
   }
 
-  async updateTask(id: number, dto: UpdateTaskDto): Promise<TaskResponseDto> {
-    await this.getTaskById(id);
+  async updateTask(id: number, dto: UpdateTaskDto, actor: JwtPayload): Promise<TaskResponseDto> {
+    const current = await this.getTaskById(id, actor);
+
+    if (dto.assigneeId !== undefined) {
+      const deal = current.deal
+        ? await this.dealsService.getDealForActor(current.deal.id, actor)
+        : null;
+
+      await this.checkAssignee(dto.assigneeId, deal, actor);
+    }
+
+    const { assigneeId, dueDate, ...rest } = dto;
 
     const data: Prisma.TaskUpdateInput = {
-      ...dto,
-      ...(dto.dueDate !== undefined && {
-        dueDate: dto.dueDate === null ? null : new Date(dto.dueDate),
+      ...rest,
+      ...(dueDate !== undefined && {
+        dueDate: dueDate === null ? null : new Date(dueDate),
+      }),
+      ...(assigneeId !== undefined && {
+        assignee: { connect: { id: assigneeId } },
       }),
     };
 
     const updatedTask = await this.tasksRepository.update(id, data);
 
+    // Re-read without the visibility filter: the update may have handed the task to someone else.
     const task = await this.tasksRepository.findById(updatedTask.id);
 
     if (!task) {
@@ -75,7 +128,11 @@ export class TasksService {
     return new TaskResponseDto(task);
   }
 
-  async updateTaskStatus(id: number, status: TaskStatus): Promise<TaskResponseDto> {
-    return this.updateTask(id, { status });
+  async updateTaskStatus(
+    id: number,
+    status: TaskStatus,
+    actor: JwtPayload,
+  ): Promise<TaskResponseDto> {
+    return this.updateTask(id, { status }, actor);
   }
 }

@@ -168,6 +168,12 @@ export class ClientsRepository {
     });
   }
 
+  async isAssigned(clientId: number, userId: number): Promise<boolean> {
+    const count = await this.prisma.clientManager.count({ where: { clientId, userId } });
+
+    return count > 0;
+  }
+
   async findManagers(clientId: number): Promise<ClientManagerWithUser[]> {
     return this.prisma.clientManager.findMany({
       where: { clientId },

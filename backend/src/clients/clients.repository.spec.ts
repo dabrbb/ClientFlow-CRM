@@ -286,4 +286,20 @@ describe('ClientsRepository', () => {
       });
     });
   });
+  describe('isAssigned', () => {
+    it('checks the client-user pair and says yes when it exists', async () => {
+      prisma.clientManager.count.mockResolvedValue(1);
+
+      await expect(repository.isAssigned(5, 9)).resolves.toBe(true);
+      expect(prisma.clientManager.count).toHaveBeenCalledWith({
+        where: { clientId: 5, userId: 9 },
+      });
+    });
+
+    it('says no when there is no such pair', async () => {
+      prisma.clientManager.count.mockResolvedValue(0);
+
+      await expect(repository.isAssigned(5, 9)).resolves.toBe(false);
+    });
+  });
 });

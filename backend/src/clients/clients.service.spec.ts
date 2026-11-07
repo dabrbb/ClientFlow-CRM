@@ -33,6 +33,7 @@ describe('ClientsService', () => {
       Parameters<ClientsRepository['addManager']>
     >(),
     removeManager: jest.fn<Promise<boolean>, Parameters<ClientsRepository['removeManager']>>(),
+    isAssigned: jest.fn<Promise<boolean>, Parameters<ClientsRepository['isAssigned']>>(),
   };
 
   const usersService = {
@@ -262,21 +263,6 @@ describe('ClientsService', () => {
     });
   });
 
-  describe('getClientById', () => {
-    it('stays unrestricted for internal existence checks', async () => {
-      clientsRepository.findById.mockResolvedValue(aClient);
-
-      await expect(service.getClientById(5)).resolves.toBe(aClient);
-      expect(clientsRepository.findById).toHaveBeenCalledWith(5);
-    });
-
-    it('throws not found for a missing client', async () => {
-      clientsRepository.findById.mockResolvedValue(null);
-
-      await expect(service.getClientById(5)).rejects.toThrow(NotFoundException);
-    });
-  });
-
   describe('updateClient', () => {
     it('updates a client the actor can see', async () => {
       clientsRepository.findById.mockResolvedValue(aClient);
@@ -468,6 +454,14 @@ describe('ClientsService', () => {
 
       await expect(service.removeManager(5, 9, manager)).rejects.toThrow(NotFoundException);
       expect(clientsRepository.removeManager).not.toHaveBeenCalled();
+    });
+  });
+  describe('isAssigned', () => {
+    it.each([true, false])('relays %s from the repository', async (answer) => {
+      clientsRepository.isAssigned.mockResolvedValue(answer);
+
+      await expect(service.isAssigned(5, 9)).resolves.toBe(answer);
+      expect(clientsRepository.isAssigned).toHaveBeenCalledWith(5, 9);
     });
   });
 });

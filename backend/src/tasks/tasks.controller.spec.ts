@@ -1,5 +1,7 @@
 import {
+  BadRequestException,
   ExecutionContext,
+  ForbiddenException,
   INestApplication,
   NotFoundException,
   ValidationPipe,
@@ -115,7 +117,7 @@ describe('TasksController (HTTP, no database)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(asJson(makeResponse(status)));
-      expect(tasksService.updateTaskStatus).toHaveBeenCalledWith(5, status);
+      expect(tasksService.updateTaskStatus).toHaveBeenCalledWith(5, status, signedInUser);
     });
 
     it('passes the id to the service as a number', async () => {
@@ -193,7 +195,7 @@ describe('TasksController (HTTP, no database)', () => {
   });
 
   describe('GET /tasks (mine filter)', () => {
-    const assigneeIdOfCall = () => tasksService.getAllTasks.mock.calls[0][0]?.assigneeId;
+    const assigneeIdOfCall = () => tasksService.getAllTasks.mock.calls[0][1]?.assigneeId;
 
     it('without parameters returns the list and applies no filter', async () => {
       tasksService.getAllTasks.mockResolvedValue([makeResponse()]);
@@ -269,7 +271,7 @@ describe('TasksController (HTTP, no database)', () => {
       const res = await request(app.getHttpServer()).get('/tasks/5');
 
       expect(res.status).toBe(200);
-      expect(tasksService.getTaskById).toHaveBeenCalledWith(5);
+      expect(tasksService.getTaskById).toHaveBeenCalledWith(5, signedInUser);
       expect(tasksService.getAllTasks).not.toHaveBeenCalled();
     });
   });
@@ -343,7 +345,7 @@ describe('TasksController (HTTP, no database)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(asJson(makeResponse()));
-      expect(tasksService.getTaskById).toHaveBeenCalledWith(5);
+      expect(tasksService.getTaskById).toHaveBeenCalledWith(5, signedInUser);
     });
 
     it('GET /tasks calls getAllTasks', async () => {
@@ -367,6 +369,87 @@ describe('TasksController (HTTP, no database)', () => {
         title: 'Call the client',
         assigneeId: 2,
       });
+    });
+  });
+
+  describe('who is asking', () => {
+    it('GET /tasks hands the signed-in user to the service', async () => {
+      tasksService.getAllTasks.mockResolvedValue([]);
+
+      await request(app.getHttpServer()).get('/tasks');
+
+      expect(tasksService.getAllTasks).toHaveBeenCalledWith(signedInUser, {
+        assigneeId: undefined,
+      });
+    });
+
+    it('GET /tasks?mine=true adds the signed-in user as the assignee next to the visibility rule', async () => {
+      tasksService.getAllTasks.mockResolvedValue([]);
+
+      await request(app.getHttpServer()).get('/tasks?mine=true');
+
+      expect(tasksService.getAllTasks).toHaveBeenCalledWith(signedInUser, {
+        assigneeId: signedInUser.sub,
+      });
+    });
+
+    it('POST /tasks hands the signed-in user to the service', async () => {
+      tasksService.createTask.mockResolvedValue(createdTask);
+
+      await request(app.getHttpServer()).post('/tasks').send({ title: 'Call', assigneeId: 7 });
+
+      expect(tasksService.createTask.mock.calls[0][1]).toBe(signedInUser);
+    });
+
+    it('PATCH /tasks/:id hands the signed-in user to the service', async () => {
+      tasksService.updateTask.mockResolvedValue(makeResponse());
+
+      await request(app.getHttpServer()).patch('/tasks/5').send({ title: 'New title' });
+
+      expect(tasksService.updateTask.mock.calls[0][2]).toBe(signedInUser);
+    });
+
+    it('answers 404 for a task the service hides', async () => {
+      tasksService.getTaskById.mockRejectedValue(new NotFoundException('Task not found'));
+
+      const res = await request(app.getHttpServer()).get('/tasks/5');
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('PATCH /tasks/:id with assigneeId', () => {
+    it('passes a valid assigneeId to the service', async () => {
+      tasksService.updateTask.mockResolvedValue(makeResponse());
+
+      const res = await request(app.getHttpServer()).patch('/tasks/5').send({ assigneeId: 9 });
+
+      expect(res.status).toBe(200);
+      expect(tasksService.updateTask.mock.calls[0][1]).toMatchObject({ assigneeId: 9 });
+    });
+
+    it.each<[string, unknown]>([
+      ['null', null],
+      ['a string', '9'],
+      ['zero', 0],
+      ['a negative number', -1],
+      ['a fraction', 1.5],
+    ])('rejects %s with 400 and updates nothing', async (_label, assigneeId) => {
+      const res = await request(app.getHttpServer()).patch('/tasks/5').send({ assigneeId });
+
+      expect(res.status).toBe(400);
+      expect(tasksService.updateTask).not.toHaveBeenCalled();
+    });
+
+    it('relays 400 and 403 from the service', async () => {
+      tasksService.updateTask.mockRejectedValueOnce(new BadRequestException('not assigned'));
+      tasksService.updateTask.mockRejectedValueOnce(new ForbiddenException('only yourself'));
+
+      const first = await request(app.getHttpServer()).patch('/tasks/5').send({ assigneeId: 9 });
+      const second = await request(app.getHttpServer()).patch('/tasks/5').send({ assigneeId: 9 });
+
+      expect(first.status).toBe(400);
+      expect(second.status).toBe(403);
     });
   });
 });

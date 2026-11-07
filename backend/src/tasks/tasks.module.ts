@@ -5,9 +5,10 @@ import { TasksRepository } from './tasks.repository';
 import { TasksService } from './tasks.service';
 import { UsersModule } from 'src/users/users.module';
 import { DealsModule } from 'src/deals/deals.module';
+import { ClientsModule } from 'src/clients/clients.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, DealsModule],
+  imports: [PrismaModule, UsersModule, DealsModule, ClientsModule],
 
   controllers: [TasksController],
 
