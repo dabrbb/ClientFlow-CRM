@@ -136,6 +136,7 @@ describe('ClientsService', () => {
       );
 
       expect(Object.keys(countFilters()).sort()).toEqual([
+        'assignedTo',
         'createdAfter',
         'managerId',
         'search',
@@ -499,6 +500,34 @@ describe('ClientsService', () => {
 
       await expect(service.isAssigned(5, 9)).resolves.toBe(answer);
       expect(clientsRepository.isAssigned).toHaveBeenCalledWith(5, 9);
+    });
+  });
+  describe('getAllClients: the managerId filter', () => {
+    it('is passed on as assignedTo, next to the visibility scope, for the list and the count', async () => {
+      await service.getAllClients(makeQuery({ managerId: 9 }), manager);
+
+      expect(findAllParams()).toMatchObject({ managerId: manager.sub, assignedTo: 9 });
+      expect(countFilters()).toMatchObject({ managerId: manager.sub, assignedTo: 9 });
+    });
+
+    it('does not replace the scope: a manager asking for themselves is still scoped', async () => {
+      await service.getAllClients(makeQuery({ managerId: manager.sub }), manager);
+
+      expect(countFilters()).toMatchObject({ managerId: manager.sub, assignedTo: manager.sub });
+    });
+
+    it('lets an admin filter by any manager without a scope', async () => {
+      await service.getAllClients(makeQuery({ managerId: 9 }), admin);
+
+      expect(countFilters().managerId).toBeUndefined();
+      expect(countFilters().assignedTo).toBe(9);
+    });
+
+    it('sends nothing when the parameter is absent', async () => {
+      await service.getAllClients(makeQuery(), manager);
+
+      expect(findAllParams().assignedTo).toBeUndefined();
+      expect(countFilters().assignedTo).toBeUndefined();
     });
   });
 });

@@ -319,4 +319,43 @@ describe('ClientsRepository', () => {
       });
     });
   });
+  describe('assignedTo', () => {
+    const managedBy = (userId: number) => ({ managers: { some: { userId } } });
+
+    it('limits the list and the count to clients that user is assigned to', async () => {
+      await repository.findAll({ ...paging, assignedTo: 9 });
+      await repository.count({ assignedTo: 9 });
+
+      expect(findManyArgs().where).toEqual({ AND: [managedBy(9)] });
+      expect(countArgs().where).toEqual({ AND: [managedBy(9)] });
+    });
+
+    it('is kept next to the visibility scope instead of overwriting it', async () => {
+      await repository.count({ managerId: 7, assignedTo: 9 });
+
+      expect(countArgs().where).toEqual({ ...managedBy(7), AND: [managedBy(9)] });
+    });
+
+    it('combines with the other filters', async () => {
+      await repository.count({ assignedTo: 9, search: 'alex', status: ClientStatus.ACTIVE });
+
+      expect(countArgs().where).toEqual({
+        OR: searchClause('alex'),
+        status: ClientStatus.ACTIVE,
+        AND: [managedBy(9)],
+      });
+    });
+
+    it('adds nothing when undefined', async () => {
+      await repository.count({ assignedTo: undefined });
+
+      expect(countArgs().where).toEqual({});
+    });
+
+    it('keeps user id 0 as a real condition', async () => {
+      await repository.count({ assignedTo: 0 });
+
+      expect(countArgs().where).toEqual({ AND: [managedBy(0)] });
+    });
+  });
 });

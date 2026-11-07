@@ -38,7 +38,7 @@ A REST API for a small-team CRM: clients, sales deals and tasks, with JWT authen
 **Quality**
 - Environment variables validated at startup: the app refuses to boot with a missing secret or a malformed duration
 - Global `ValidationPipe` with whitelisting: unknown fields are rejected with 400
-- **736 unit tests** across services, repositories, controllers and DTOs
+- **760 unit tests** across services, repositories, controllers and DTOs
 
 ## Access model
 
@@ -105,7 +105,7 @@ All routes except `register`, `login` and `refresh` require `Authorization: Bear
 | GET | `/users/colleagues` | Everyone as `id`, `name`, `role`, to pick a second manager |
 | GET | `/users` | All users with full data (**ADMIN** only) |
 | POST | `/clients` | Create a client (**ADMIN** only), it lands in the pool |
-| GET | `/clients` | Your clients: `page`, `limit`, `search`, `status`, `createdAfter`, `sort`, `order` (an admin: all) |
+| GET | `/clients` | Your clients (an admin: all): `page`, `limit`, `search`, `status`, `createdAfter`, `managerId`, `sort`, `order` |
 | GET | `/clients/pool` | Clients nobody works with yet (short card): `page`, `limit` |
 | POST | `/clients/:id/claim` | Take a client from the pool |
 | GET | `/clients/:id` | Get one of your clients |
@@ -159,7 +159,7 @@ The project is built in 15 stages, each finished stage landing as its own commit
 - [x] 8. Deal stages with transition rules (`WON` / `LOST` are final, 409 otherwise)
 - [x] 9. Tasks: assignee, status endpoint, "my tasks" filter
 - [x] Access model: client pool, several managers per client, a manager sees only their own clients, deals and tasks, an admin sees everything
-- [ ] `manager` filter on `GET /clients` for admins (who works with whom)
+- [x] `managerId` filter on `GET /clients`: only clients a given manager works on (it narrows what the caller can already see)
 
 **Next**
 - [ ] 10. Notes: comments on deals

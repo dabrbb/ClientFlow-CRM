@@ -38,6 +38,14 @@ export class GetClientsQueryDto {
   @IsEnum(ClientStatus)
   status?: ClientStatus;
 
+  // Only clients this user is assigned to. It narrows what the caller may already see, it never
+  // widens it: a manager asking for a colleague gets the clients they share.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  managerId?: number;
+
   @IsOptional()
   @IsISO8601({ strict: true, strictSeparator: true })
   @Matches(DATE_OR_INSTANT, {

@@ -6,8 +6,11 @@ interface ClientFilters {
   search?: string;
   status?: ClientStatus;
   createdAfter?: Date;
-  // Only clients this user is assigned to. Left undefined, nothing is restricted.
+  // Visibility: only clients this user is assigned to. Left undefined, nothing is restricted.
   managerId?: number;
+  // A filter chosen by the caller: only clients this user is assigned to. Combined with
+  // managerId, never replacing it.
+  assignedTo?: number;
 }
 
 interface FindAllClientsParams extends ClientFilters {
@@ -35,8 +38,8 @@ export type ClaimResult = 'claimed' | 'taken' | 'not_found';
 export class ClientsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private assignedTo(managerId: number): Prisma.ClientManagerListRelationFilter {
-    return { some: { userId: managerId } };
+  private managedBy(userId: number): Prisma.ClientManagerListRelationFilter {
+    return { some: { userId } };
   }
 
   private buildWhere({
@@ -44,11 +47,17 @@ export class ClientsRepository {
     status,
     createdAfter,
     managerId,
+    assignedTo,
   }: ClientFilters): Prisma.ClientWhereInput {
     const where: Prisma.ClientWhereInput = {};
 
     if (managerId !== undefined) {
-      where.managers = this.assignedTo(managerId);
+      where.managers = this.managedBy(managerId);
+    }
+
+    // Its own AND clause, so it cannot overwrite the visibility condition above.
+    if (assignedTo !== undefined) {
+      where.AND = [{ managers: this.managedBy(assignedTo) }];
     }
 
     if (search) {
@@ -95,7 +104,7 @@ export class ClientsRepository {
     return this.prisma.client.findFirst({
       where: {
         id,
-        ...(managerId !== undefined && { managers: this.assignedTo(managerId) }),
+        ...(managerId !== undefined && { managers: this.managedBy(managerId) }),
       },
     });
   }

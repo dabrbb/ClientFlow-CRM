@@ -133,4 +133,27 @@ describe('GetClientsQueryDto', () => {
       await expect(parse({ createdBefore: '2026-11-02' })).rejects.toMatchObject(rejectedFor);
     });
   });
+  describe('managerId', () => {
+    it('is optional', async () => {
+      await expect(parse({})).resolves.toHaveProperty('managerId', undefined);
+    });
+
+    it('is converted from text to a number', async () => {
+      await expect(parse({ managerId: '5' })).resolves.toMatchObject({ managerId: 5 });
+    });
+
+    it.each(['0', '-1', '1.5', 'abc', 'null', '5abc', ''])('rejects "%s"', async (value) => {
+      await expect(parse({ managerId: value })).rejects.toMatchObject(rejectedFor);
+    });
+
+    it('rejects a repeated parameter (an array)', async () => {
+      await expect(parse({ managerId: ['1', '2'] })).rejects.toMatchObject(rejectedFor);
+    });
+
+    it('works next to the other parameters', async () => {
+      await expect(
+        parse({ managerId: '5', status: 'ACTIVE', page: '2', limit: '5' }),
+      ).resolves.toMatchObject({ managerId: 5, status: 'ACTIVE', page: 2, limit: 5 });
+    });
+  });
 });

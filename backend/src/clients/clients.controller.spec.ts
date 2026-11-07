@@ -156,12 +156,25 @@ describe('ClientsController (HTTP, no database)', () => {
       );
     });
 
-    it('ignores a managerId in the query: it is rejected as an unknown parameter', async () => {
+    it('reads managerId from the query as a number and hands it to the service', async () => {
+      clientsService.getAllClients.mockResolvedValue(new ClientResponseDto([], 1, 10, 0));
+
       const res = await request(app.getHttpServer()).get('/clients?managerId=2');
 
-      expect(res.status).toBe(400);
-      expect(clientsService.getAllClients).not.toHaveBeenCalled();
+      expect(res.status).toBe(200);
+      expect(clientsService.getAllClients.mock.calls[0][0]).toMatchObject({ managerId: 2 });
+      expect(clientsService.getAllClients.mock.calls[0][1]).toBe(signedInUser);
     });
+
+    it.each(['managerId=0', 'managerId=abc', 'managerId=1.5', 'managerId=1&managerId=2'])(
+      'rejects %s with 400',
+      async (query) => {
+        const res = await request(app.getHttpServer()).get('/clients?' + query);
+
+        expect(res.status).toBe(400);
+        expect(clientsService.getAllClients).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('GET /clients/:id', () => {

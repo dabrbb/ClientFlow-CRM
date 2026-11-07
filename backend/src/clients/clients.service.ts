@@ -39,7 +39,7 @@ export class ClientsService {
   }
 
   async getAllClients(query: GetClientsQueryDto, actor: JwtPayload): Promise<ClientResponseDto> {
-    const { page, limit, search, status, createdAfter, sort, order } = query;
+    const { page, limit, search, status, createdAfter, managerId, sort, order } = query;
 
     const skip = (page - 1) * limit;
 
@@ -49,6 +49,7 @@ export class ClientsService {
       // Date-only strings parse as UTC midnight; the DTO guarantees every date-time has Z/offset.
       createdAfter: createdAfter ? new Date(createdAfter) : undefined,
       managerId: managerScope(actor),
+      assignedTo: managerId,
     };
 
     const [clients, total] = await Promise.all([
