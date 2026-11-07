@@ -12,6 +12,18 @@ describe('ClientsRepository', () => {
       count: jest.fn<Promise<number>, [Prisma.ClientCountArgs]>(),
       findFirst: jest.fn<Promise<Client | null>, [Prisma.ClientFindFirstArgs]>(),
     },
+    clientManager: {
+      count: jest.fn<Promise<number>, [Prisma.ClientManagerCountArgs]>(),
+      create: jest.fn<Promise<unknown>, [Prisma.ClientManagerCreateArgs]>(),
+      findMany: jest.fn<Promise<unknown[]>, [Prisma.ClientManagerFindManyArgs]>(),
+      createMany: jest.fn<Promise<{ count: number }>, [Prisma.ClientManagerCreateManyArgs]>(),
+      findUniqueOrThrow: jest.fn<Promise<unknown>, [Prisma.ClientManagerFindUniqueOrThrowArgs]>(),
+      deleteMany: jest.fn<Promise<{ count: number }>, [Prisma.ClientManagerDeleteManyArgs]>(),
+    },
+    // Tagged-template call: the first argument is the array of SQL fragments.
+    $queryRaw: jest.fn<Promise<{ id: number }[]>, [TemplateStringsArray, ...unknown[]]>(),
+    // Runs the callback with this same mock as the transaction client.
+    $transaction: jest.fn(),
   };
 
   const paging = { skip: 20, take: 10, sort: 'createdAt', order: 'desc' } as const;
@@ -30,6 +42,9 @@ describe('ClientsRepository', () => {
     prisma.client.findMany.mockResolvedValue([]);
     prisma.client.count.mockResolvedValue(0);
     prisma.client.findFirst.mockResolvedValue(null);
+    prisma.$transaction.mockImplementation((work: (tx: typeof prisma) => Promise<unknown>) =>
+      work(prisma),
+    );
 
     const moduleRef = await Test.createTestingModule({
       providers: [ClientsRepository, { provide: PrismaService, useValue: prisma }],
@@ -148,6 +163,126 @@ describe('ClientsRepository', () => {
 
       expect(prisma.client.findFirst).toHaveBeenCalledWith({
         where: { id: 5, managers: { some: { userId: 7 } } },
+      });
+    });
+  });
+
+  describe('pool', () => {
+    const noManagers = { managers: { none: {} } };
+
+    it('lists clients with no manager, oldest first, with only the public fields', async () => {
+      await repository.findPool({ skip: 20, take: 10 });
+
+      expect(findManyArgs()).toEqual({
+        where: noManagers,
+        select: { id: true, name: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+        skip: 20,
+        take: 10,
+      });
+    });
+
+    it('counts with the same condition', async () => {
+      await repository.countPool();
+
+      expect(countArgs().where).toEqual(noManagers);
+    });
+  });
+
+  describe('claim', () => {
+    it('locks the client row before reading or writing anything else', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 5 }]);
+      prisma.clientManager.count.mockResolvedValue(0);
+
+      await repository.claim(5, 7);
+
+      const [fragments, ...values] = prisma.$queryRaw.mock.calls[0];
+      expect(fragments.join('?')).toMatch(/FROM "Client" WHERE "id" = \?\s+FOR UPDATE/);
+      expect(values).toEqual([5]);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.clientManager.count.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('assigns the client to the caller when nobody has it, recording the caller as assigner', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 5 }]);
+      prisma.clientManager.count.mockResolvedValue(0);
+
+      await expect(repository.claim(5, 7)).resolves.toBe('claimed');
+      expect(prisma.clientManager.count).toHaveBeenCalledWith({ where: { clientId: 5 } });
+      expect(prisma.clientManager.create).toHaveBeenCalledWith({
+        data: { clientId: 5, userId: 7, assignedById: 7 },
+      });
+    });
+
+    it('reports "taken" and writes nothing when a manager already exists', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 5 }]);
+      prisma.clientManager.count.mockResolvedValue(1);
+
+      await expect(repository.claim(5, 7)).resolves.toBe('taken');
+      expect(prisma.clientManager.create).not.toHaveBeenCalled();
+    });
+
+    it('reports "not_found" and goes no further when the client does not exist', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+
+      await expect(repository.claim(5, 7)).resolves.toBe('not_found');
+      expect(prisma.clientManager.count).not.toHaveBeenCalled();
+      expect(prisma.clientManager.create).not.toHaveBeenCalled();
+    });
+
+    it('does everything inside one transaction', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+
+      await repository.claim(5, 7);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('managers of a client', () => {
+    it('lists them with only id, name and role of each user, in the order they were added', async () => {
+      prisma.clientManager.findMany.mockResolvedValue([]);
+
+      await repository.findManagers(5);
+
+      expect(prisma.clientManager.findMany).toHaveBeenCalledWith({
+        where: { clientId: 5 },
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: { assignedAt: 'asc' },
+      });
+    });
+
+    it('adds a manager without failing on a duplicate', async () => {
+      prisma.clientManager.createMany.mockResolvedValue({ count: 1 });
+      prisma.clientManager.findUniqueOrThrow.mockResolvedValue({ userId: 9 });
+
+      await expect(repository.addManager(5, 9, 7)).resolves.toEqual({ userId: 9 });
+      expect(prisma.clientManager.createMany).toHaveBeenCalledWith({
+        data: [{ clientId: 5, userId: 9, assignedById: 7 }],
+        skipDuplicates: true,
+      });
+      expect(prisma.clientManager.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { clientId_userId: { clientId: 5, userId: 9 } },
+        include: { user: { select: { id: true, name: true, role: true } } },
+      });
+    });
+
+    it('returns null for an already assigned user and reads nothing back', async () => {
+      prisma.clientManager.createMany.mockResolvedValue({ count: 0 });
+
+      await expect(repository.addManager(5, 9, 7)).resolves.toBeNull();
+      expect(prisma.clientManager.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('removes exactly one client-user pair and says whether it existed', async () => {
+      prisma.clientManager.deleteMany.mockResolvedValueOnce({ count: 1 });
+      prisma.clientManager.deleteMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(repository.removeManager(5, 9)).resolves.toBe(true);
+      await expect(repository.removeManager(5, 9)).resolves.toBe(false);
+      expect(prisma.clientManager.deleteMany).toHaveBeenCalledWith({
+        where: { clientId: 5, userId: 9 },
       });
     });
   });

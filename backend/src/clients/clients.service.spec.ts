@@ -1,11 +1,13 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Client, ClientStatus, Role } from '@prisma/client';
 import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
-import { ClientsRepository } from './clients.repository';
+import { UsersService } from 'src/users/users.service';
+import { ClientManagerWithUser, ClientsRepository, PoolClient } from './clients.repository';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { GetClientsQueryDto } from './dto/get-clients-query.dto';
+import { GetPoolQueryDto } from './dto/get-pool-query.dto';
 
 describe('ClientsService', () => {
   let service: ClientsService;
@@ -16,6 +18,25 @@ describe('ClientsService', () => {
     findAll: jest.fn<Promise<Client[]>, Parameters<ClientsRepository['findAll']>>(),
     count: jest.fn<Promise<number>, Parameters<ClientsRepository['count']>>(),
     update: jest.fn<Promise<Client>, Parameters<ClientsRepository['update']>>(),
+    findPool: jest.fn<Promise<PoolClient[]>, Parameters<ClientsRepository['findPool']>>(),
+    countPool: jest.fn<Promise<number>, Parameters<ClientsRepository['countPool']>>(),
+    claim: jest.fn<
+      ReturnType<ClientsRepository['claim']>,
+      Parameters<ClientsRepository['claim']>
+    >(),
+    findManagers: jest.fn<
+      Promise<ClientManagerWithUser[]>,
+      Parameters<ClientsRepository['findManagers']>
+    >(),
+    addManager: jest.fn<
+      Promise<ClientManagerWithUser | null>,
+      Parameters<ClientsRepository['addManager']>
+    >(),
+    removeManager: jest.fn<Promise<boolean>, Parameters<ClientsRepository['removeManager']>>(),
+  };
+
+  const usersService = {
+    getUserById: jest.fn<ReturnType<UsersService['getUserById']>, [number]>(),
   };
 
   const admin: JwtPayload = { sub: 1, email: 'admin@example.com', role: Role.ADMIN };
@@ -45,7 +66,11 @@ describe('ClientsService', () => {
     clientsRepository.count.mockResolvedValue(0);
 
     const moduleRef = await Test.createTestingModule({
-      providers: [ClientsService, { provide: ClientsRepository, useValue: clientsRepository }],
+      providers: [
+        ClientsService,
+        { provide: ClientsRepository, useValue: clientsRepository },
+        { provide: UsersService, useValue: usersService },
+      ],
     }).compile();
 
     service = moduleRef.get(ClientsService);
@@ -270,6 +295,179 @@ describe('ClientsService', () => {
         NotFoundException,
       );
       expect(clientsRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  const link = (userId: number, name = 'Colleague'): ClientManagerWithUser => ({
+    clientId: 5,
+    userId,
+    assignedAt: new Date(0),
+    assignedById: 1,
+    user: { id: userId, name, role: Role.MANAGER },
+  });
+
+  describe('getPool', () => {
+    const makeQuery = (page = 1, limit = 10) =>
+      Object.assign(new GetPoolQueryDto(), { page, limit });
+
+    it('reads the requested page and builds the meta', async () => {
+      clientsRepository.findPool.mockResolvedValue([]);
+      clientsRepository.countPool.mockResolvedValue(25);
+
+      const result = await service.getPool(makeQuery(3, 10));
+
+      expect(clientsRepository.findPool).toHaveBeenCalledWith({ skip: 20, take: 10 });
+      expect(result.meta).toEqual({ page: 3, limit: 10, total: 25, pages: 3 });
+    });
+
+    it('returns only id, name, status and createdAt, never contacts', async () => {
+      const row = {
+        id: 5,
+        name: 'Acme',
+        status: ClientStatus.LEAD,
+        createdAt: new Date(0),
+        email: 'secret@acme.com',
+        phone: '+100',
+      } as PoolClient;
+      clientsRepository.findPool.mockResolvedValue([row]);
+      clientsRepository.countPool.mockResolvedValue(1);
+
+      const result = await service.getPool(makeQuery());
+
+      expect(Object.keys(result.data[0]).sort()).toEqual(['createdAt', 'id', 'name', 'status']);
+    });
+  });
+
+  describe('claimClient', () => {
+    it('assigns the client to the caller and returns it', async () => {
+      clientsRepository.claim.mockResolvedValue('claimed');
+      clientsRepository.findById.mockResolvedValue(aClient);
+
+      await expect(service.claimClient(5, manager)).resolves.toBe(aClient);
+      expect(clientsRepository.claim).toHaveBeenCalledWith(5, manager.sub);
+      expect(clientsRepository.findById).toHaveBeenCalledWith(5, manager.sub);
+    });
+
+    it('answers 409 when somebody already took the client', async () => {
+      clientsRepository.claim.mockResolvedValue('taken');
+
+      await expect(service.claimClient(5, manager)).rejects.toThrow(ConflictException);
+    });
+
+    it('answers 404 for a client that does not exist', async () => {
+      clientsRepository.claim.mockResolvedValue('not_found');
+
+      await expect(service.claimClient(5, manager)).rejects.toThrow(NotFoundException);
+    });
+
+    it('lets an admin claim too', async () => {
+      clientsRepository.claim.mockResolvedValue('claimed');
+      clientsRepository.findById.mockResolvedValue(aClient);
+
+      await service.claimClient(5, admin);
+
+      expect(clientsRepository.claim).toHaveBeenCalledWith(5, admin.sub);
+    });
+  });
+
+  describe('getManagers', () => {
+    it('lists the managers of a client the actor can see, without extra user fields', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      clientsRepository.findManagers.mockResolvedValue([link(7, 'Me'), link(9, 'Zed')]);
+
+      const result = await service.getManagers(5, manager);
+
+      expect(result).toEqual([
+        { id: 7, name: 'Me', role: Role.MANAGER, assignedAt: new Date(0) },
+        { id: 9, name: 'Zed', role: Role.MANAGER, assignedAt: new Date(0) },
+      ]);
+    });
+
+    it('hides the list of a client the actor cannot see', async () => {
+      clientsRepository.findById.mockResolvedValue(null);
+
+      await expect(service.getManagers(5, manager)).rejects.toThrow(NotFoundException);
+      expect(clientsRepository.findManagers).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('addManager', () => {
+    it('adds any existing user and records who added them', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      usersService.getUserById.mockResolvedValue({} as never);
+      clientsRepository.addManager.mockResolvedValue(link(9, 'Zed'));
+
+      const result = await service.addManager(5, 9, manager);
+
+      expect(clientsRepository.addManager).toHaveBeenCalledWith(5, 9, manager.sub);
+      expect(result).toEqual({ id: 9, name: 'Zed', role: Role.MANAGER, assignedAt: new Date(0) });
+    });
+
+    it('lets an admin add a manager to any client', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      usersService.getUserById.mockResolvedValue({} as never);
+      clientsRepository.addManager.mockResolvedValue(link(9));
+
+      await service.addManager(5, 9, admin);
+
+      expect(clientsRepository.findById).toHaveBeenCalledWith(5, undefined);
+    });
+
+    it('answers 404 and changes nothing when the actor cannot see the client', async () => {
+      clientsRepository.findById.mockResolvedValue(null);
+
+      await expect(service.addManager(5, 9, manager)).rejects.toThrow(NotFoundException);
+      expect(usersService.getUserById).not.toHaveBeenCalled();
+      expect(clientsRepository.addManager).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a user that does not exist', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      usersService.getUserById.mockRejectedValue(new NotFoundException('User not found'));
+
+      await expect(service.addManager(5, 999, manager)).rejects.toThrow(NotFoundException);
+      expect(clientsRepository.addManager).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 when the user is already assigned', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      usersService.getUserById.mockResolvedValue({} as never);
+      clientsRepository.addManager.mockResolvedValue(null);
+
+      await expect(service.addManager(5, 9, manager)).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('removeManager', () => {
+    it('lets a manager remove a colleague', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      clientsRepository.removeManager.mockResolvedValue(true);
+
+      await expect(service.removeManager(5, 9, manager)).resolves.toBeUndefined();
+      expect(clientsRepository.removeManager).toHaveBeenCalledWith(5, 9);
+    });
+
+    it('lets a manager remove themselves', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      clientsRepository.removeManager.mockResolvedValue(true);
+
+      await service.removeManager(5, manager.sub, manager);
+
+      expect(clientsRepository.removeManager).toHaveBeenCalledWith(5, manager.sub);
+    });
+
+    it('answers 404 when that user is not assigned', async () => {
+      clientsRepository.findById.mockResolvedValue(aClient);
+      clientsRepository.removeManager.mockResolvedValue(false);
+
+      await expect(service.removeManager(5, 9, manager)).rejects.toThrow(NotFoundException);
+    });
+
+    it('answers 404 and changes nothing when the actor cannot see the client', async () => {
+      clientsRepository.findById.mockResolvedValue(null);
+
+      await expect(service.removeManager(5, 9, manager)).rejects.toThrow(NotFoundException);
+      expect(clientsRepository.removeManager).not.toHaveBeenCalled();
     });
   });
 });
