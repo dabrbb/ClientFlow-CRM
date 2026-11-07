@@ -49,6 +49,9 @@ model User {
   activityLogs ActivityLog[]
   tasks        Task[]
   notes        Note[]
+
+  managedClients ClientManager[] @relation("ManagerUser")
+  assignedLinks  ClientManager[] @relation("ManagerAssigner")
 }
 
 model Client {
@@ -64,6 +67,23 @@ model Client {
   userId Int
   user   User   @relation(fields: [userId], references: [id])
   deals  Deal[]
+
+  managers ClientManager[]
+}
+
+// A client with no rows here sits in the pool of unassigned clients.
+model ClientManager {
+  clientId     Int
+  userId       Int
+  assignedAt   DateTime @default(now())
+  assignedById Int?
+
+  client     Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user       User   @relation("ManagerUser", fields: [userId], references: [id])
+  assignedBy User?  @relation("ManagerAssigner", fields: [assignedById], references: [id])
+
+  @@id([clientId, userId])
+  @@index([userId])
 }
 
 model Deal {
