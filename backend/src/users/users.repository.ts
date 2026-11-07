@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 
+export type Colleague = Prisma.UserGetPayload<{
+  select: { id: true; name: true; role: true };
+}>;
+
 @Injectable()
 export class UsersRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -30,6 +34,14 @@ export class UsersRepository {
       data: {
         hashedRefreshToken,
       },
+    });
+  }
+
+  // Selects only public fields, so the password hash never leaves this layer.
+  async findAllColleagues(): Promise<Colleague[]> {
+    return this.prisma.user.findMany({
+      select: { id: true, name: true, role: true },
+      orderBy: { name: 'asc' },
     });
   }
 

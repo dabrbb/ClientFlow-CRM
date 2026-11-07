@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { UsersRepository } from './users.repository';
+import { Colleague, UsersRepository } from './users.repository';
 import { Prisma, User } from '@prisma/client';
 
 @Injectable()
@@ -30,5 +30,9 @@ export class UsersService {
 
   async getAllUsers(): Promise<User[]> {
     return this.usersRepository.findAll();
+  }
+
+  async getColleagues(): Promise<Colleague[]> {
+    return this.usersRepository.findAllColleagues();
   }
 }

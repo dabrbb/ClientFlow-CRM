@@ -2,6 +2,7 @@ import { Controller, Get, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { UserResponseDto } from './dto/user-response.dto';
+import { ColleagueResponseDto } from './dto/colleague-response.dto';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { RolesGuard } from 'src/common/guards/roles.guard';
@@ -18,6 +19,15 @@ export class UsersController {
     const currentUser = await this.usersService.getUserById(user.sub);
 
     return new UserResponseDto(currentUser);
+  }
+
+  // Open to any signed-in user: managers pick coworkers from this list.
+  @Get('colleagues')
+  @UseGuards(JwtAuthGuard)
+  async getColleagues(): Promise<ColleagueResponseDto[]> {
+    const colleagues = await this.usersService.getColleagues();
+
+    return colleagues.map((colleague) => new ColleagueResponseDto(colleague));
   }
 
   @Get()
