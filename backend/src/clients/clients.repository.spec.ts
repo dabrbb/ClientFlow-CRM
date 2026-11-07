@@ -10,6 +10,7 @@ describe('ClientsRepository', () => {
     client: {
       findMany: jest.fn<Promise<Client[]>, [Prisma.ClientFindManyArgs]>(),
       count: jest.fn<Promise<number>, [Prisma.ClientCountArgs]>(),
+      findFirst: jest.fn<Promise<Client | null>, [Prisma.ClientFindFirstArgs]>(),
     },
   };
 
@@ -28,6 +29,7 @@ describe('ClientsRepository', () => {
     jest.clearAllMocks();
     prisma.client.findMany.mockResolvedValue([]);
     prisma.client.count.mockResolvedValue(0);
+    prisma.client.findFirst.mockResolvedValue(null);
 
     const moduleRef = await Test.createTestingModule({
       providers: [ClientsRepository, { provide: PrismaService, useValue: prisma }],
@@ -97,6 +99,56 @@ describe('ClientsRepository', () => {
 
       expect(findManyArgs()).toEqual({ where: {}, skip: 20, take: 10, orderBy: { name: 'asc' } });
       expect(countArgs()).toEqual({ where: {} });
+    });
+  });
+
+  describe('managerId', () => {
+    const assignedTo7 = { managers: { some: { userId: 7 } } };
+
+    it('limits the list and the count to clients assigned to that manager', async () => {
+      await repository.findAll({ ...paging, managerId: 7 });
+      await repository.count({ managerId: 7 });
+
+      expect(findManyArgs().where).toEqual(assignedTo7);
+      expect(countArgs().where).toEqual(assignedTo7);
+    });
+
+    it('combines with the other filters instead of replacing them', async () => {
+      await repository.count({ managerId: 7, search: 'alex', status: ClientStatus.ACTIVE });
+
+      expect(countArgs().where).toEqual({
+        OR: searchClause('alex'),
+        status: ClientStatus.ACTIVE,
+        ...assignedTo7,
+      });
+    });
+
+    it('adds nothing when no manager is given', async () => {
+      await repository.count({ managerId: undefined });
+
+      expect(countArgs().where).not.toHaveProperty('managers');
+    });
+
+    it('keeps manager id 0 as a real restriction instead of treating it as "no filter"', async () => {
+      await repository.count({ managerId: 0 });
+
+      expect(countArgs().where).toEqual({ managers: { some: { userId: 0 } } });
+    });
+  });
+
+  describe('findById', () => {
+    it('looks up by id alone when no manager is given', async () => {
+      await repository.findById(5);
+
+      expect(prisma.client.findFirst).toHaveBeenCalledWith({ where: { id: 5 } });
+    });
+
+    it('also requires the manager to be assigned when one is given', async () => {
+      await repository.findById(5, 7);
+
+      expect(prisma.client.findFirst).toHaveBeenCalledWith({
+        where: { id: 5, managers: { some: { userId: 7 } } },
+      });
     });
   });
 });

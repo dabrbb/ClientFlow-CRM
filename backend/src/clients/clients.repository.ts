@@ -6,6 +6,8 @@ interface ClientFilters {
   search?: string;
   status?: ClientStatus;
   createdAfter?: Date;
+  // Only clients this user is assigned to. Left undefined, nothing is restricted.
+  managerId?: number;
 }
 
 interface FindAllClientsParams extends ClientFilters {
@@ -19,8 +21,21 @@ interface FindAllClientsParams extends ClientFilters {
 export class ClientsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildWhere({ search, status, createdAfter }: ClientFilters): Prisma.ClientWhereInput {
+  private assignedTo(managerId: number): Prisma.ClientManagerListRelationFilter {
+    return { some: { userId: managerId } };
+  }
+
+  private buildWhere({
+    search,
+    status,
+    createdAfter,
+    managerId,
+  }: ClientFilters): Prisma.ClientWhereInput {
     const where: Prisma.ClientWhereInput = {};
+
+    if (managerId !== undefined) {
+      where.managers = this.assignedTo(managerId);
+    }
 
     if (search) {
       where.OR = [
@@ -62,9 +77,12 @@ export class ClientsRepository {
     });
   }
 
-  async findById(id: number): Promise<Client | null> {
-    return this.prisma.client.findUnique({
-      where: { id },
+  async findById(id: number, managerId?: number): Promise<Client | null> {
+    return this.prisma.client.findFirst({
+      where: {
+        id,
+        ...(managerId !== undefined && { managers: this.assignedTo(managerId) }),
+      },
     });
   }
 
