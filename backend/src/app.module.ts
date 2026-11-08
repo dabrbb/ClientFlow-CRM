@@ -7,6 +7,7 @@ import { PrismaModule } from 'src/prisma/prisma.module';
 import { ClientsModule } from './clients/clients.module';
 import { DealsModule } from './deals/deals.module';
 import { TasksModule } from './tasks/tasks.module';
+import { NotesModule } from './notes/notes.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -21,6 +22,7 @@ import { validate } from './config/env.validation';
     ClientsModule,
     DealsModule,
     TasksModule,
+    NotesModule,
   ],
   controllers: [AppController],
   providers: [],
