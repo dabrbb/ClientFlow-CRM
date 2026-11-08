@@ -10,6 +10,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { NotesModule } from './notes/notes.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { validate } from './config/env.validation';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { validate } from './config/env.validation';
     TasksModule,
     NotesModule,
     DashboardModule,
+    ActivityModule,
   ],
   controllers: [AppController],
   providers: [],

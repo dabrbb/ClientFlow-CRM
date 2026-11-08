@@ -136,8 +136,17 @@ model ActivityLog {
   action    String
   entity    String
   entityId  Int
+  // Allow-listed facts about the action (see activity/log-activity.decorator.ts); never free text.
+  details   Json?
   createdAt DateTime @default(now())
 
   userId Int
   user   User @relation(fields: [userId], references: [id])
+
+  // History of one entity (optionally narrowed to entity type), newest first.
+  @@index([entity, entityId, createdAt])
+  // Actions of one user; also serves the FK check when a user is deleted.
+  @@index([userId, createdAt])
+  // Unfiltered listing and date ranges, newest first.
+  @@index([createdAt])
 }

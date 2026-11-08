@@ -27,6 +27,14 @@ import { GetPoolQueryDto } from './dto/get-pool-query.dto';
 import { PoolResponseDto } from './dto/pool-response.dto';
 import { AddManagerDto } from './dto/add-manager.dto';
 import { ClientManagerResponseDto } from './dto/client-manager-response.dto';
+import { LogActivity } from 'src/activity/log-activity.decorator';
+import {
+  clientClaimed,
+  clientCreated,
+  clientUpdated,
+  managerAdded,
+  managerRemoved,
+} from 'src/activity/activity-mappers';
 
 @Controller('clients')
 @UseGuards(JwtAuthGuard)
@@ -35,6 +43,7 @@ export class ClientsController {
 
   // Only an admin creates clients; a new client waits in the pool until a manager takes it.
   @Post()
+  @LogActivity(clientCreated)
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
   async create(@Body() dto: CreateClientDto, @CurrentUser() user: JwtPayload) {
@@ -61,6 +70,7 @@ export class ClientsController {
   }
 
   @Patch(':id')
+  @LogActivity(clientUpdated)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateClientDto,
@@ -70,6 +80,7 @@ export class ClientsController {
   }
 
   @Post(':id/claim')
+  @LogActivity(clientClaimed)
   async claim(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.clientsService.claimClient(id, user);
   }
@@ -83,6 +94,7 @@ export class ClientsController {
   }
 
   @Post(':id/managers')
+  @LogActivity(managerAdded)
   async addManager(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AddManagerDto,
@@ -92,6 +104,7 @@ export class ClientsController {
   }
 
   @Delete(':id/managers/:userId')
+  @LogActivity(managerRemoved)
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeManager(
     @Param('id', ParseIntPipe) id: number,

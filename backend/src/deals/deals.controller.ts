@@ -6,6 +6,8 @@ import { DealsService } from './deals.service';
 import { UpdateDealDto } from './dto/update-deal.dto';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { DealResponseDto } from './dto/deal-response.dto';
+import { LogActivity } from 'src/activity/log-activity.decorator';
+import { dealCreated, dealUpdated } from 'src/activity/activity-mappers';
 
 @Controller('deals')
 @UseGuards(JwtAuthGuard)
@@ -13,6 +15,7 @@ export class DealsController {
   constructor(private readonly dealsService: DealsService) {}
 
   @Post()
+  @LogActivity(dealCreated)
   async create(
     @Body() dto: CreateDealDto,
     @CurrentUser() user: JwtPayload,
@@ -34,6 +37,7 @@ export class DealsController {
   }
 
   @Patch(':id')
+  @LogActivity(dealUpdated)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateDealDto,

@@ -18,6 +18,8 @@ import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
+import { LogActivity } from 'src/activity/log-activity.decorator';
+import { taskCreated, taskStatusChanged, taskUpdated } from 'src/activity/activity-mappers';
 
 @Controller('tasks')
 @UseGuards(JwtAuthGuard)
@@ -25,6 +27,7 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
+  @LogActivity(taskCreated)
   async create(@Body() dto: CreateTaskDto, @CurrentUser() user: JwtPayload) {
     return this.tasksService.createTask(dto, user);
   }
@@ -40,6 +43,7 @@ export class TasksController {
   }
 
   @Patch(':id')
+  @LogActivity(taskUpdated)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateTaskDto,
@@ -49,6 +53,7 @@ export class TasksController {
   }
 
   @Patch(':id/status')
+  @LogActivity(taskStatusChanged)
   async updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateTaskStatusDto,

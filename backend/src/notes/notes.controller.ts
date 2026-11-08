@@ -17,6 +17,8 @@ import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { NoteContentDto } from './dto/note-content.dto';
 import { NoteResponseDto } from './dto/note-response.dto';
 import { NotesService } from './notes.service';
+import { LogActivity } from 'src/activity/log-activity.decorator';
+import { noteCreated, noteDeleted, noteUpdated } from 'src/activity/activity-mappers';
 
 // Notes are created and listed through their deal, and changed by their own id.
 @Controller()
@@ -25,6 +27,7 @@ export class NotesController {
   constructor(private readonly notesService: NotesService) {}
 
   @Post('deals/:dealId/notes')
+  @LogActivity(noteCreated)
   async create(
     @Param('dealId', ParseIntPipe) dealId: number,
     @Body() dto: NoteContentDto,
@@ -42,6 +45,7 @@ export class NotesController {
   }
 
   @Patch('notes/:id')
+  @LogActivity(noteUpdated)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: NoteContentDto,
@@ -51,6 +55,7 @@ export class NotesController {
   }
 
   @Delete('notes/:id')
+  @LogActivity(noteDeleted)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id', ParseIntPipe) id: number,
