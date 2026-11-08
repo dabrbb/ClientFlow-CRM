@@ -25,6 +25,7 @@ describe('TasksService', () => {
       ReturnType<TasksRepository['findAll']>,
       Parameters<TasksRepository['findAll']>
     >(),
+    count: jest.fn<ReturnType<TasksRepository['count']>, Parameters<TasksRepository['count']>>(),
   };
 
   const usersService = {
@@ -463,6 +464,39 @@ describe('TasksService', () => {
 
       expect(tasksRepository.update.mock.calls[0]).toStrictEqual([5, { status: to }]);
       expect(result.status).toBe(to);
+    });
+  });
+
+  describe('countOpenDueTasks', () => {
+    const from = new Date('2026-11-08T00:00:00.000Z');
+    const before = new Date('2026-11-09T00:00:00.000Z');
+
+    beforeEach(() => {
+      tasksRepository.count.mockResolvedValue(3);
+    });
+
+    it("counts the manager's own open tasks in the range, among the tasks they may see", async () => {
+      await expect(service.countOpenDueTasks(manager, from, before)).resolves.toBe(3);
+
+      expect(tasksRepository.count).toHaveBeenCalledWith({
+        assigneeId: 7,
+        visibleTo: 7,
+        statuses: [TaskStatus.TODO, TaskStatus.IN_PROGRESS],
+        dueFrom: from,
+        dueBefore: before,
+      });
+    });
+
+    it("counts an admin's own tasks only, without a visibility restriction", async () => {
+      await service.countOpenDueTasks(admin, from, before);
+
+      expect(tasksRepository.count).toHaveBeenCalledWith({
+        assigneeId: 1,
+        visibleTo: undefined,
+        statuses: [TaskStatus.TODO, TaskStatus.IN_PROGRESS],
+        dueFrom: from,
+        dueBefore: before,
+      });
     });
   });
 });

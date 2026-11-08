@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { DealsRepository } from './deals.repository';
+import { DealsRepository, DealStageStats } from './deals.repository';
 import { Prisma } from '@prisma/client';
 import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { managerScope } from 'src/common/access/manager-scope';
@@ -41,6 +41,11 @@ export class DealsService {
     }
 
     return new DealResponseDto(deal);
+  }
+
+  // Deal counts and value sums per stage over the deals the actor may see, for the dashboard.
+  async getStageStats(actor: JwtPayload): Promise<DealStageStats[]> {
+    return this.dealsRepository.statsByStage({ managerId: managerScope(actor) });
   }
 
   async getAllDeals(actor: JwtPayload): Promise<DealResponseDto[]> {

@@ -26,6 +26,10 @@ describe('DealsService', () => {
       Parameters<DealsRepository['findAll']>
     >(),
     update: jest.fn<ReturnType<DealsRepository['update']>, Parameters<DealsRepository['update']>>(),
+    statsByStage: jest.fn<
+      ReturnType<DealsRepository['statsByStage']>,
+      Parameters<DealsRepository['statsByStage']>
+    >(),
   };
 
   const clientsService = {
@@ -440,6 +444,26 @@ describe('DealsService', () => {
         expect(clientsService.getClientForActor).toHaveBeenCalledWith(8, manager);
         expect(dealsRepository.create).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('getStageStats', () => {
+    const stats = [{ stage: DealStage.WON, count: 2, valueSum: 300 }];
+
+    beforeEach(() => {
+      dealsRepository.statsByStage.mockResolvedValue(stats);
+    });
+
+    it('restricts a manager to the deals of their own clients', async () => {
+      await expect(service.getStageStats(manager)).resolves.toBe(stats);
+
+      expect(dealsRepository.statsByStage).toHaveBeenCalledWith({ managerId: 7 });
+    });
+
+    it('does not restrict an admin', async () => {
+      await service.getStageStats(admin);
+
+      expect(dealsRepository.statsByStage).toHaveBeenCalledWith({ managerId: undefined });
     });
   });
 });

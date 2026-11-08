@@ -76,6 +76,11 @@ export class ClientsService {
     return this.clientsRepository.update(id, data);
   }
 
+  // How many clients the actor may see: the same scope as GET /clients, with no other filter.
+  async countVisibleClients(actor: JwtPayload): Promise<number> {
+    return this.clientsRepository.count({ managerId: managerScope(actor) });
+  }
+
   // Whether a user is one of the client's managers. Used to check who a task may be given to.
   async isAssigned(clientId: number, userId: number): Promise<boolean> {
     return this.clientsRepository.isAssigned(clientId, userId);

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, Task } from '@prisma/client';
+import { Prisma, Task, TaskStatus } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 export type TaskWithRelations = Prisma.TaskGetPayload<{
@@ -27,6 +27,11 @@ export interface TaskFilters {
   assigneeId?: number;
   // Only tasks this user may see. Left undefined, nothing is restricted.
   visibleTo?: number;
+  statuses?: TaskStatus[];
+  // Half-open range on dueDate: dueFrom <= dueDate < dueBefore. A task without a due date never
+  // matches when either bound is set.
+  dueFrom?: Date;
+  dueBefore?: Date;
 }
 
 const relations = {
@@ -61,11 +66,25 @@ export class TasksRepository {
     ];
   }
 
-  private buildWhere({ assigneeId, visibleTo }: TaskFilters): Prisma.TaskWhereInput {
+  private buildWhere({
+    assigneeId,
+    visibleTo,
+    statuses,
+    dueFrom,
+    dueBefore,
+  }: TaskFilters): Prisma.TaskWhereInput {
     const where: Prisma.TaskWhereInput = {};
 
     if (assigneeId !== undefined) {
       where.assigneeId = assigneeId;
+    }
+
+    if (statuses !== undefined) {
+      where.status = { in: statuses };
+    }
+
+    if (dueFrom !== undefined || dueBefore !== undefined) {
+      where.dueDate = { gte: dueFrom, lt: dueBefore };
     }
 
     if (visibleTo !== undefined) {
@@ -94,6 +113,10 @@ export class TasksRepository {
       orderBy: { createdAt: 'desc' },
       include: relations,
     });
+  }
+
+  async count(filters: TaskFilters = {}): Promise<number> {
+    return this.prisma.task.count({ where: this.buildWhere(filters) });
   }
 
   async update(id: number, data: Prisma.TaskUpdateInput): Promise<Task> {

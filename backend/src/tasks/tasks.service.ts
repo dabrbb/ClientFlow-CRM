@@ -93,6 +93,18 @@ export class TasksService {
     return tasks.map((task) => new TaskResponseDto(task));
   }
 
+  // The actor's own unfinished tasks (TODO, IN_PROGRESS) due in [from, before), among the tasks
+  // they may see. Used for the dashboard.
+  async countOpenDueTasks(actor: JwtPayload, from: Date, before: Date): Promise<number> {
+    return this.tasksRepository.count({
+      assigneeId: actor.sub,
+      visibleTo: managerScope(actor),
+      statuses: [TaskStatus.TODO, TaskStatus.IN_PROGRESS],
+      dueFrom: from,
+      dueBefore: before,
+    });
+  }
+
   async updateTask(id: number, dto: UpdateTaskDto, actor: JwtPayload): Promise<TaskResponseDto> {
     const current = await this.getTaskById(id, actor);
 

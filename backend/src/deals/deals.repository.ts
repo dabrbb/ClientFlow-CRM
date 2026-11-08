@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DealStage, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 export type DealWithClient = Prisma.DealGetPayload<{
@@ -7,6 +7,12 @@ export type DealWithClient = Prisma.DealGetPayload<{
     client: true;
   };
 }>;
+
+export interface DealStageStats {
+  stage: DealStage;
+  count: number;
+  valueSum: number;
+}
 
 export interface DealFilters {
   // Only deals of clients this user is assigned to. Left undefined, nothing is restricted.
@@ -55,6 +61,23 @@ export class DealsRepository {
         createdAt: 'desc',
       },
     });
+  }
+
+  // One grouped query: the number of deals and the sum of their values for every stage that has
+  // at least one deal. Deals without a value add nothing to the sum.
+  async statsByStage(filters: DealFilters = {}): Promise<DealStageStats[]> {
+    const groups = await this.prisma.deal.groupBy({
+      by: ['stage'],
+      where: this.buildWhere(filters),
+      _count: { _all: true },
+      _sum: { value: true },
+    });
+
+    return groups.map((group) => ({
+      stage: group.stage,
+      count: group._count._all,
+      valueSum: group._sum.value ?? 0,
+    }));
   }
 
   async update(id: number, data: Prisma.DealUpdateInput): Promise<DealWithClient> {

@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
+import { DealStage, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { DealsRepository, DealWithClient } from './deals.repository';
 
@@ -12,6 +12,7 @@ describe('DealsRepository', () => {
       findFirst: jest.fn<Promise<DealWithClient | null>, [Prisma.DealFindFirstArgs]>(),
       findMany: jest.fn<Promise<DealWithClient[]>, [Prisma.DealFindManyArgs]>(),
       update: jest.fn<Promise<DealWithClient>, [Prisma.DealUpdateArgs]>(),
+      groupBy: jest.fn<Promise<unknown>, [{ where: Prisma.DealWhereInput }]>(),
     },
   };
 
@@ -141,6 +142,38 @@ describe('DealsRepository', () => {
       await repository.findById(5);
 
       expect(prisma.deal.findFirst.mock.calls[0][0].where).toEqual({ id: 5 });
+    });
+  });
+
+  describe('statsByStage', () => {
+    it('groups by stage and maps counts and sums, treating a null sum as 0', async () => {
+      prisma.deal.groupBy.mockResolvedValue([
+        { stage: DealStage.WON, _count: { _all: 2 }, _sum: { value: 150.5 } },
+        { stage: DealStage.NEW, _count: { _all: 3 }, _sum: { value: null } },
+      ] as never);
+
+      const result = await repository.statsByStage();
+
+      expect(result).toEqual([
+        { stage: DealStage.WON, count: 2, valueSum: 150.5 },
+        { stage: DealStage.NEW, count: 3, valueSum: 0 },
+      ]);
+      expect(prisma.deal.groupBy.mock.calls[0][0]).toEqual({
+        by: ['stage'],
+        where: {},
+        _count: { _all: true },
+        _sum: { value: true },
+      });
+    });
+
+    it('limits the groups to the deals of clients the manager is assigned to', async () => {
+      prisma.deal.groupBy.mockResolvedValue([] as never);
+
+      await repository.statsByStage({ managerId: 7 });
+
+      expect(prisma.deal.groupBy.mock.calls[0][0].where).toEqual({
+        client: { managers: { some: { userId: 7 } } },
+      });
     });
   });
 });

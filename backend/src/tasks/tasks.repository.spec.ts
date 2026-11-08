@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
+import { Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TasksRepository, TaskWithRelations } from './tasks.repository';
 
@@ -10,6 +10,7 @@ describe('TasksRepository', () => {
     task: {
       findMany: jest.fn<Promise<TaskWithRelations[]>, [Prisma.TaskFindManyArgs]>(),
       findFirst: jest.fn<Promise<TaskWithRelations | null>, [Prisma.TaskFindFirstArgs]>(),
+      count: jest.fn<Promise<number>, [Prisma.TaskCountArgs]>(),
     },
   };
 
@@ -140,6 +141,41 @@ describe('TasksRepository', () => {
           ],
         },
         include: relations,
+      });
+    });
+  });
+
+  describe('count', () => {
+    it('counts with no restriction by default', async () => {
+      prisma.task.count.mockResolvedValue(4);
+
+      await expect(repository.count()).resolves.toBe(4);
+      expect(prisma.task.count).toHaveBeenCalledWith({ where: {} });
+    });
+
+    it('combines assignee, visibility, statuses and a half-open due range', async () => {
+      const dueFrom = new Date('2026-11-08T00:00:00.000Z');
+      const dueBefore = new Date('2026-11-09T00:00:00.000Z');
+      prisma.task.count.mockResolvedValue(1);
+
+      await repository.count({
+        assigneeId: 7,
+        visibleTo: 7,
+        statuses: [TaskStatus.TODO, TaskStatus.IN_PROGRESS],
+        dueFrom,
+        dueBefore,
+      });
+
+      expect(prisma.task.count).toHaveBeenCalledWith({
+        where: {
+          assigneeId: 7,
+          status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] },
+          dueDate: { gte: dueFrom, lt: dueBefore },
+          OR: [
+            { deal: { client: { managers: { some: { userId: 7 } } } } },
+            { dealId: null, assigneeId: 7 },
+          ],
+        },
       });
     });
   });

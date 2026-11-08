@@ -530,4 +530,22 @@ describe('ClientsService', () => {
       expect(countFilters().assignedTo).toBeUndefined();
     });
   });
+
+  describe('countVisibleClients', () => {
+    beforeEach(() => {
+      clientsRepository.count.mockResolvedValue(4);
+    });
+
+    it('counts only the clients a manager is assigned to', async () => {
+      await expect(service.countVisibleClients(manager)).resolves.toBe(4);
+
+      expect(clientsRepository.count).toHaveBeenCalledWith({ managerId: 7 });
+    });
+
+    it('does not restrict an admin', async () => {
+      await service.countVisibleClients(admin);
+
+      expect(clientsRepository.count).toHaveBeenCalledWith({ managerId: undefined });
+    });
+  });
 });
