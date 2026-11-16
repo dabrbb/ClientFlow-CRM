@@ -162,9 +162,9 @@ The project is built in 15 stages, each finished stage landing as its own commit
 - [x] `managerId` filter on `GET /clients`: only clients a given manager works on (it narrows what the caller can already see)
 
 **Next**
-- [ ] 10. Notes: comments on deals
-- [ ] 11. Dashboard: pipeline value per stage, won deals, overdue tasks
-- [ ] 12. Activity log: who changed what and when
+- [x] 10. Notes: comments on deals
+- [x] 11. Dashboard: pipeline value per stage, won deals, overdue tasks
+- [x] 12. Activity log: who changed what and when
 - [ ] 13. Soft delete: archive clients (the `deletedAt` column is ready)
 - [ ] 14. Swagger docs and a global error handler (consistent error format, Prisma errors mapped to HTTP)
 - [ ] 15. Docker Compose, seed data, end-to-end tests against a real database, CI
