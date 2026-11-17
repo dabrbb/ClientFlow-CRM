@@ -111,6 +111,39 @@ export class ClientsService {
     return this.getClientForActor(id, actor);
   }
 
+  // Who may archive is decided by the controller (admin only). A client that is missing or
+  // already archived is reported as missing, like any client the caller cannot see.
+  async archiveClient(id: number): Promise<void> {
+    if (!(await this.clientsRepository.archive(id))) {
+      throw new NotFoundException('Client not found');
+    }
+  }
+
+  async restoreClient(id: number, actor: JwtPayload): Promise<Client> {
+    const result = await this.clientsRepository.restore(id);
+
+    if (result === 'not_found') {
+      throw new NotFoundException('Client not found');
+    }
+
+    if (result === 'not_archived') {
+      throw new ConflictException('This client is not archived');
+    }
+
+    return this.getClientForActor(id, actor);
+  }
+
+  async getArchivedClients(query: GetPoolQueryDto): Promise<ClientResponseDto> {
+    const { page, limit } = query;
+
+    const [clients, total] = await Promise.all([
+      this.clientsRepository.findArchived({ skip: (page - 1) * limit, take: limit }),
+      this.clientsRepository.countArchived(),
+    ]);
+
+    return new ClientResponseDto(clients, page, limit, total);
+  }
+
   async getManagers(clientId: number, actor: JwtPayload): Promise<ClientManagerResponseDto[]> {
     await this.getClientForActor(clientId, actor);
 

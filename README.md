@@ -1,6 +1,6 @@
 # ClientFlow CRM
 
-A REST API for a small-team CRM: clients, sales deals and tasks, with JWT authentication, roles and per-client access: a manager works only with the clients assigned to them.
+A REST API for a small-team CRM: clients, sales deals, tasks and notes, with JWT authentication, roles, per-client access (a manager works only with the clients assigned to them), a dashboard and an audit log.
 
 > 🚧 **Work in progress.** The backend core is in place and covered by unit tests; see the [roadmap](#roadmap) for what comes next.
 
@@ -24,6 +24,7 @@ A REST API for a small-team CRM: clients, sales deals and tasks, with JWT authen
 - Read and update, limited to the clients you are assigned to (an admin sees all)
 - Pagination, text search, filters by status and creation date, sorting by name or date
 - A client can have several managers: any assigned manager or an admin adds or removes managers
+- **Soft delete:** an admin archives a client instead of deleting it, and can restore it later with its managers, deals, tasks and notes intact
 
 **Deals**
 - Create, read, update, linked to a client
@@ -35,10 +36,20 @@ A REST API for a small-team CRM: clients, sales deals and tasks, with JWT authen
 - A task can be handed to another manager of the same client (`assigneeId`)
 - Separate status endpoint, and a `?mine=true` filter for the current user's tasks
 
+**Notes**
+- Comments on a deal, newest first; only the author or an admin can edit or delete a note
+
+**Dashboard**
+- `GET /dashboard`: number of clients, active, won and lost deals, revenue of won deals and the caller's own tasks due today, computed only over what the caller may see
+
+**Activity log**
+- An append-only audit trail of successful data-changing requests (who did what to which record), readable by an admin with paging and filters
+- Stores only allow-listed facts such as ids, stages and the names of changed fields, never contacts, titles or note text
+
 **Quality**
 - Environment variables validated at startup: the app refuses to boot with a missing secret or a malformed duration
 - Global `ValidationPipe` with whitelisting: unknown fields are rejected with 400
-- **760 unit tests** across services, repositories, controllers and DTOs
+- **985 unit tests** across services, repositories, controllers, DTOs and the audit log
 
 ## Access model
 
@@ -49,6 +60,7 @@ Roles are `ADMIN` and `MANAGER`. Access is decided per client:
 - **Teamwork.** An assigned manager (or an admin) can add any user as another manager and can remove managers, themselves included. The last manager leaving returns the client to the pool.
 - **Tasks.** A task with a deal is seen by everyone assigned to its client. A task without a deal is seen only by its assignee. A task with a deal can only be given to a manager assigned to that client; a manager creates deal-less tasks only for themselves.
 - **Leaving.** A manager cannot be removed from a client while holding open tasks (`TODO`, `IN_PROGRESS`) on it: they must be handed over (`PATCH /tasks/:id` with `assigneeId`) or closed first (409 otherwise).
+- **Archive.** Only an admin archives, restores and lists archived clients; a manager gets 403. An archived client disappears for everyone, an admin included: the client, its deals, notes and the tasks attached to those deals answer 404 and drop out of lists and dashboard numbers. Tasks without a deal are not tied to a client and stay available. Restoring brings everything back with the same managers.
 - **Admin.** Sees all clients, deals and tasks, creates clients and may assign managers. An admin who also works with clients assigns themselves like any manager.
 
 ## Architecture
@@ -69,6 +81,9 @@ backend/src
 ├── clients/
 ├── deals/
 ├── tasks/
+├── notes/
+├── dashboard/
+├── activity/    # audit log: @LogActivity, interceptor, mappers, GET /activity
 ├── common/      # @CurrentUser, @Roles, RolesGuard, managerScope
 ├── config/      # environment validation
 └── prisma/      # PrismaService
@@ -89,7 +104,7 @@ erDiagram
     Deal ||--o{ Note : has
 ```
 
-`ClientManager` links a client to the managers working on it (many to many); a client with no rows is in the pool. `Note` and `ActivityLog` already exist in the schema; their API modules are on the roadmap.
+`ClientManager` links a client to the managers working on it (many to many); a client with no rows is in the pool. `Client.deletedAt` marks an archived client; deals, tasks and notes are hidden through their client and have no flag of their own.
 
 ## API
 
@@ -107,9 +122,12 @@ All routes except `register`, `login` and `refresh` require `Authorization: Bear
 | POST | `/clients` | Create a client (**ADMIN** only), it lands in the pool |
 | GET | `/clients` | Your clients (an admin: all): `page`, `limit`, `search`, `status`, `createdAfter`, `managerId`, `sort`, `order` |
 | GET | `/clients/pool` | Clients nobody works with yet (short card): `page`, `limit` |
+| GET | `/clients/archived` | Archived clients (**ADMIN** only): `page`, `limit` |
 | POST | `/clients/:id/claim` | Take a client from the pool |
 | GET | `/clients/:id` | Get one of your clients |
 | PATCH | `/clients/:id` | Update one of your clients |
+| DELETE | `/clients/:id` | Archive a client (**ADMIN** only, 204) |
+| POST | `/clients/:id/restore` | Restore an archived client (**ADMIN** only) |
 | GET | `/clients/:id/managers` | Managers of a client |
 | POST | `/clients/:id/managers` | Add a manager, body `{ "userId": 5 }` |
 | DELETE | `/clients/:id/managers/:userId` | Remove a manager (409 while they hold open tasks) |
@@ -117,11 +135,17 @@ All routes except `register`, `login` and `refresh` require `Authorization: Bear
 | GET | `/deals` | List deals of your clients |
 | GET | `/deals/:id` | Get a deal |
 | PATCH | `/deals/:id` | Update a deal (stage rule enforced) |
+| POST | `/deals/:dealId/notes` | Add a note to a deal |
+| GET | `/deals/:dealId/notes` | Notes of a deal, newest first |
+| PATCH | `/notes/:id` | Edit a note (author or admin) |
+| DELETE | `/notes/:id` | Delete a note (author or admin, 204) |
 | POST | `/tasks` | Create a task |
 | GET | `/tasks` | List the tasks you may see, `?mine=true` for those assigned to you |
 | GET | `/tasks/:id` | Get a task |
 | PATCH | `/tasks/:id` | Update a task, or hand it over with `assigneeId` |
 | PATCH | `/tasks/:id/status` | Change only the status |
+| GET | `/dashboard` | Clients, active/won/lost deals, revenue and tasks due today |
+| GET | `/activity` | Audit log (**ADMIN** only): `page`, `limit`, `entity`, `entityId`, `action`, `userId`, `createdAfter`, `createdBefore` |
 
 ## Getting started
 
@@ -151,6 +175,10 @@ The project is built in 15 stages, each finished stage landing as its own commit
 - [x] 2. Prisma + PostgreSQL: schema and migrations
 - [x] 3. Auth: JWT access and refresh tokens with rotation
 - [x] 4. Users and roles (`ADMIN`, `MANAGER`)
+- [x] 10. Notes: comments on deals
+- [x] 11. Dashboard: clients, active/won/lost deals, revenue, tasks due today
+- [x] 12. Activity log: who changed what and when
+- [x] 13. Soft delete: an admin archives and restores clients
 
 **Implemented, closing the gaps**
 - [x] 5. Clients CRUD
@@ -162,10 +190,6 @@ The project is built in 15 stages, each finished stage landing as its own commit
 - [x] `managerId` filter on `GET /clients`: only clients a given manager works on (it narrows what the caller can already see)
 
 **Next**
-- [x] 10. Notes: comments on deals
-- [x] 11. Dashboard: pipeline value per stage, won deals, overdue tasks
-- [x] 12. Activity log: who changed what and when
-- [ ] 13. Soft delete: archive clients (the `deletedAt` column is ready)
 - [ ] 14. Swagger docs and a global error handler (consistent error format, Prisma errors mapped to HTTP)
 - [ ] 15. Docker Compose, seed data, end-to-end tests against a real database, CI
 

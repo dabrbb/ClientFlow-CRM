@@ -34,6 +34,11 @@ export type ClientManagerWithUser = Prisma.ClientManagerGetPayload<{
 
 export type ClaimResult = 'claimed' | 'taken' | 'not_found';
 
+export type RestoreResult = 'restored' | 'not_archived' | 'not_found';
+
+// Archived clients are hidden from every query below except the archive ones.
+const notArchived = { deletedAt: null } satisfies Prisma.ClientWhereInput;
+
 @Injectable()
 export class ClientsRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -49,7 +54,7 @@ export class ClientsRepository {
     managerId,
     assignedTo,
   }: ClientFilters): Prisma.ClientWhereInput {
-    const where: Prisma.ClientWhereInput = {};
+    const where: Prisma.ClientWhereInput = { ...notArchived };
 
     if (managerId !== undefined) {
       where.managers = this.managedBy(managerId);
@@ -104,6 +109,7 @@ export class ClientsRepository {
     return this.prisma.client.findFirst({
       where: {
         id,
+        ...notArchived,
         ...(managerId !== undefined && { managers: this.managedBy(managerId) }),
       },
     });
@@ -136,7 +142,10 @@ export class ClientsRepository {
   }
 
   // The pool is every client with no manager; it is derived, never stored.
-  private readonly poolWhere: Prisma.ClientWhereInput = { managers: { none: {} } };
+  private readonly poolWhere: Prisma.ClientWhereInput = {
+    ...notArchived,
+    managers: { none: {} },
+  };
 
   async findPool(params: { skip: number; take: number }): Promise<PoolClient[]> {
     return this.prisma.client.findMany({
@@ -158,7 +167,7 @@ export class ClientsRepository {
   async claim(clientId: number, userId: number): Promise<ClaimResult> {
     return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<{ id: number }[]>`
-        SELECT "id" FROM "Client" WHERE "id" = ${clientId} FOR UPDATE
+        SELECT "id" FROM "Client" WHERE "id" = ${clientId} AND "deletedAt" IS NULL FOR UPDATE
       `;
 
       if (locked.length === 0) {
@@ -175,6 +184,48 @@ export class ClientsRepository {
 
       return 'claimed';
     });
+  }
+
+  // Archiving only stamps deletedAt: managers, deals, tasks and notes stay as they are, so a
+  // restore brings everything back. Returns false when the client is missing or already archived.
+  async archive(id: number): Promise<boolean> {
+    const { count } = await this.prisma.client.updateMany({
+      where: { id, ...notArchived },
+      data: { deletedAt: new Date() },
+    });
+
+    return count > 0;
+  }
+
+  // The conditional update decides atomically; the existence check only tells apart the two
+  // reasons for "nothing restored".
+  async restore(id: number): Promise<RestoreResult> {
+    const { count } = await this.prisma.client.updateMany({
+      where: { id, deletedAt: { not: null } },
+      data: { deletedAt: null },
+    });
+
+    if (count > 0) {
+      return 'restored';
+    }
+
+    const exists = await this.prisma.client.count({ where: { id } });
+
+    return exists > 0 ? 'not_archived' : 'not_found';
+  }
+
+  // Most recently archived first; id keeps pages stable when several share one timestamp.
+  async findArchived(params: { skip: number; take: number }): Promise<Client[]> {
+    return this.prisma.client.findMany({
+      where: { deletedAt: { not: null } },
+      orderBy: [{ deletedAt: 'desc' }, { id: 'desc' }],
+      skip: params.skip,
+      take: params.take,
+    });
+  }
+
+  async countArchived(): Promise<number> {
+    return this.prisma.client.count({ where: { deletedAt: { not: null } } });
   }
 
   async isAssigned(clientId: number, userId: number): Promise<boolean> {

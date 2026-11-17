@@ -11,6 +11,7 @@ describe('ClientsRepository', () => {
       findMany: jest.fn<Promise<Client[]>, [Prisma.ClientFindManyArgs]>(),
       count: jest.fn<Promise<number>, [Prisma.ClientCountArgs]>(),
       findFirst: jest.fn<Promise<Client | null>, [Prisma.ClientFindFirstArgs]>(),
+      updateMany: jest.fn<Promise<{ count: number }>, [Prisma.ClientUpdateManyArgs]>(),
     },
     task: {
       count: jest.fn<Promise<number>, [Prisma.TaskCountArgs]>(),
@@ -29,6 +30,8 @@ describe('ClientsRepository', () => {
     $transaction: jest.fn(),
   };
 
+  const active = { deletedAt: null };
+
   const paging = { skip: 20, take: 10, sort: 'createdAt', order: 'desc' } as const;
 
   const findManyArgs = () => prisma.client.findMany.mock.calls[0][0];
@@ -45,6 +48,7 @@ describe('ClientsRepository', () => {
     prisma.client.findMany.mockResolvedValue([]);
     prisma.client.count.mockResolvedValue(0);
     prisma.client.findFirst.mockResolvedValue(null);
+    prisma.client.updateMany.mockResolvedValue({ count: 0 });
     prisma.$transaction.mockImplementation((work: (tx: typeof prisma) => Promise<unknown>) =>
       work(prisma),
     );
@@ -62,7 +66,7 @@ describe('ClientsRepository', () => {
     it('filters with an inclusive lower bound (gte, not gt)', async () => {
       await repository.findAll({ ...paging, createdAfter });
 
-      expect(findManyArgs().where).toEqual({ createdAt: { gte: createdAfter } });
+      expect(findManyArgs().where).toEqual({ ...active, createdAt: { gte: createdAfter } });
     });
 
     it('sends the same where to the list query and the count query', async () => {
@@ -73,6 +77,7 @@ describe('ClientsRepository', () => {
 
       expect(countArgs().where).toEqual(findManyArgs().where);
       expect(countArgs().where).toEqual({
+        ...active,
         OR: searchClause('alex'),
         status: ClientStatus.ACTIVE,
         createdAt: { gte: createdAfter },
@@ -83,6 +88,7 @@ describe('ClientsRepository', () => {
       await repository.findAll({ ...paging, search: 'alex', status: ClientStatus.LEAD });
 
       expect(findManyArgs().where).toEqual({
+        ...active,
         OR: searchClause('alex'),
         status: ClientStatus.LEAD,
       });
@@ -91,37 +97,42 @@ describe('ClientsRepository', () => {
   });
 
   describe('existing behavior', () => {
-    it('builds an empty where without filters', async () => {
+    it('builds a where that only hides archived clients without filters', async () => {
       await repository.findAll(paging);
       await repository.count({});
 
-      expect(findManyArgs().where).toEqual({});
-      expect(countArgs().where).toEqual({});
+      expect(findManyArgs().where).toEqual(active);
+      expect(countArgs().where).toEqual(active);
     });
 
     it('filters by search only', async () => {
       await repository.count({ search: 'alex' });
 
-      expect(countArgs().where).toEqual({ OR: searchClause('alex') });
+      expect(countArgs().where).toEqual({ ...active, OR: searchClause('alex') });
     });
 
     it('filters by status only', async () => {
       await repository.count({ status: ClientStatus.LOST });
 
-      expect(countArgs().where).toEqual({ status: ClientStatus.LOST });
+      expect(countArgs().where).toEqual({ ...active, status: ClientStatus.LOST });
     });
 
     it('passes paging and ordering to the list query only', async () => {
       await repository.findAll({ ...paging, sort: 'name', order: 'asc' });
       await repository.count({});
 
-      expect(findManyArgs()).toEqual({ where: {}, skip: 20, take: 10, orderBy: { name: 'asc' } });
-      expect(countArgs()).toEqual({ where: {} });
+      expect(findManyArgs()).toEqual({
+        where: active,
+        skip: 20,
+        take: 10,
+        orderBy: { name: 'asc' },
+      });
+      expect(countArgs()).toEqual({ where: active });
     });
   });
 
   describe('managerId', () => {
-    const assignedTo7 = { managers: { some: { userId: 7 } } };
+    const assignedTo7 = { ...active, managers: { some: { userId: 7 } } };
 
     it('limits the list and the count to clients assigned to that manager', async () => {
       await repository.findAll({ ...paging, managerId: 7 });
@@ -150,28 +161,28 @@ describe('ClientsRepository', () => {
     it('keeps manager id 0 as a real restriction instead of treating it as "no filter"', async () => {
       await repository.count({ managerId: 0 });
 
-      expect(countArgs().where).toEqual({ managers: { some: { userId: 0 } } });
+      expect(countArgs().where).toEqual({ ...active, managers: { some: { userId: 0 } } });
     });
   });
 
   describe('findById', () => {
-    it('looks up by id alone when no manager is given', async () => {
+    it('looks up by id among non-archived clients when no manager is given', async () => {
       await repository.findById(5);
 
-      expect(prisma.client.findFirst).toHaveBeenCalledWith({ where: { id: 5 } });
+      expect(prisma.client.findFirst).toHaveBeenCalledWith({ where: { id: 5, ...active } });
     });
 
     it('also requires the manager to be assigned when one is given', async () => {
       await repository.findById(5, 7);
 
       expect(prisma.client.findFirst).toHaveBeenCalledWith({
-        where: { id: 5, managers: { some: { userId: 7 } } },
+        where: { id: 5, ...active, managers: { some: { userId: 7 } } },
       });
     });
   });
 
   describe('pool', () => {
-    const noManagers = { managers: { none: {} } };
+    const noManagers = { ...active, managers: { none: {} } };
 
     it('lists clients with no manager, oldest first, with only the public fields', async () => {
       await repository.findPool({ skip: 20, take: 10 });
@@ -200,7 +211,9 @@ describe('ClientsRepository', () => {
       await repository.claim(5, 7);
 
       const [fragments, ...values] = prisma.$queryRaw.mock.calls[0];
-      expect(fragments.join('?')).toMatch(/FROM "Client" WHERE "id" = \?\s+FOR UPDATE/);
+      expect(fragments.join('?')).toMatch(
+        /FROM "Client" WHERE "id" = \?\s+AND "deletedAt" IS NULL\s+FOR UPDATE/,
+      );
       expect(values).toEqual([5]);
       expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
         prisma.clientManager.count.mock.invocationCallOrder[0],
@@ -326,20 +339,21 @@ describe('ClientsRepository', () => {
       await repository.findAll({ ...paging, assignedTo: 9 });
       await repository.count({ assignedTo: 9 });
 
-      expect(findManyArgs().where).toEqual({ AND: [managedBy(9)] });
-      expect(countArgs().where).toEqual({ AND: [managedBy(9)] });
+      expect(findManyArgs().where).toEqual({ ...active, AND: [managedBy(9)] });
+      expect(countArgs().where).toEqual({ ...active, AND: [managedBy(9)] });
     });
 
     it('is kept next to the visibility scope instead of overwriting it', async () => {
       await repository.count({ managerId: 7, assignedTo: 9 });
 
-      expect(countArgs().where).toEqual({ ...managedBy(7), AND: [managedBy(9)] });
+      expect(countArgs().where).toEqual({ ...active, ...managedBy(7), AND: [managedBy(9)] });
     });
 
     it('combines with the other filters', async () => {
       await repository.count({ assignedTo: 9, search: 'alex', status: ClientStatus.ACTIVE });
 
       expect(countArgs().where).toEqual({
+        ...active,
         OR: searchClause('alex'),
         status: ClientStatus.ACTIVE,
         AND: [managedBy(9)],
@@ -349,13 +363,74 @@ describe('ClientsRepository', () => {
     it('adds nothing when undefined', async () => {
       await repository.count({ assignedTo: undefined });
 
-      expect(countArgs().where).toEqual({});
+      expect(countArgs().where).toEqual(active);
     });
 
     it('keeps user id 0 as a real condition', async () => {
       await repository.count({ assignedTo: 0 });
 
-      expect(countArgs().where).toEqual({ AND: [managedBy(0)] });
+      expect(countArgs().where).toEqual({ ...active, AND: [managedBy(0)] });
+    });
+  });
+  describe('archive', () => {
+    it('stamps deletedAt only on a client that is not archived yet', async () => {
+      prisma.client.updateMany.mockResolvedValue({ count: 1 });
+
+      await expect(repository.archive(5)).resolves.toBe(true);
+
+      const args = prisma.client.updateMany.mock.calls[0][0];
+      expect(args.where).toEqual({ id: 5, deletedAt: null });
+      expect(args.data.deletedAt).toBeInstanceOf(Date);
+    });
+
+    it('says false when nothing matched (missing or already archived)', async () => {
+      await expect(repository.archive(5)).resolves.toBe(false);
+    });
+  });
+
+  describe('restore', () => {
+    it('clears deletedAt only on an archived client', async () => {
+      prisma.client.updateMany.mockResolvedValue({ count: 1 });
+
+      await expect(repository.restore(5)).resolves.toBe('restored');
+
+      expect(prisma.client.updateMany).toHaveBeenCalledWith({
+        where: { id: 5, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+      expect(prisma.client.count).not.toHaveBeenCalled();
+    });
+
+    it('reports "not_archived" when the client exists but is active', async () => {
+      prisma.client.count.mockResolvedValue(1);
+
+      await expect(repository.restore(5)).resolves.toBe('not_archived');
+      expect(countArgs().where).toEqual({ id: 5 });
+    });
+
+    it('reports "not_found" when there is no such client', async () => {
+      prisma.client.count.mockResolvedValue(0);
+
+      await expect(repository.restore(5)).resolves.toBe('not_found');
+    });
+  });
+
+  describe('archived clients', () => {
+    it('lists only archived ones, most recently archived first, with a stable tie-break', async () => {
+      await repository.findArchived({ skip: 20, take: 10 });
+
+      expect(findManyArgs()).toEqual({
+        where: { deletedAt: { not: null } },
+        orderBy: [{ deletedAt: 'desc' }, { id: 'desc' }],
+        skip: 20,
+        take: 10,
+      });
+    });
+
+    it('counts with the same condition', async () => {
+      await repository.countArchived();
+
+      expect(countArgs()).toEqual({ where: { deletedAt: { not: null } } });
     });
   });
 });

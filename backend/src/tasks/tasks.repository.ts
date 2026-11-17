@@ -73,7 +73,12 @@ export class TasksRepository {
     dueFrom,
     dueBefore,
   }: TaskFilters): Prisma.TaskWhereInput {
-    const where: Prisma.TaskWhereInput = {};
+    // A task without a deal has no client and stays; a task with a deal disappears together with
+    // an archived client, for everyone including an admin. Kept in AND so that it never
+    // collides with the OR of the visibility rule below.
+    const where: Prisma.TaskWhereInput = {
+      AND: [{ OR: [{ dealId: null }, { deal: { client: { deletedAt: null } } }] }],
+    };
 
     if (assigneeId !== undefined) {
       where.assigneeId = assigneeId;

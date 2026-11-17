@@ -23,12 +23,15 @@ export interface DealFilters {
 export class DealsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private assignedTo(managerId: number): Prisma.DealWhereInput {
-    return { client: { managers: { some: { userId: managerId } } } };
-  }
-
+  // A deal has no archive flag of its own: it disappears with its client, for everyone including
+  // an admin, and comes back when the client is restored.
   private buildWhere({ managerId }: DealFilters): Prisma.DealWhereInput {
-    return managerId === undefined ? {} : this.assignedTo(managerId);
+    return {
+      client: {
+        deletedAt: null,
+        ...(managerId !== undefined && { managers: { some: { userId: managerId } } }),
+      },
+    };
   }
 
   async create(data: Prisma.DealCreateInput): Promise<DealWithClient> {

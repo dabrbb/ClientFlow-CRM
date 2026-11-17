@@ -35,6 +35,13 @@ describe('ClientsService', () => {
     removeManager: jest.fn<Promise<boolean>, Parameters<ClientsRepository['removeManager']>>(),
     isAssigned: jest.fn<Promise<boolean>, Parameters<ClientsRepository['isAssigned']>>(),
     countOpenTasks: jest.fn<Promise<number>, Parameters<ClientsRepository['countOpenTasks']>>(),
+    archive: jest.fn<Promise<boolean>, Parameters<ClientsRepository['archive']>>(),
+    restore: jest.fn<
+      ReturnType<ClientsRepository['restore']>,
+      Parameters<ClientsRepository['restore']>
+    >(),
+    findArchived: jest.fn<Promise<Client[]>, Parameters<ClientsRepository['findArchived']>>(),
+    countArchived: jest.fn<Promise<number>, Parameters<ClientsRepository['countArchived']>>(),
   };
 
   const usersService = {
@@ -355,6 +362,64 @@ describe('ClientsService', () => {
       await service.claimClient(5, admin);
 
       expect(clientsRepository.claim).toHaveBeenCalledWith(5, admin.sub);
+    });
+  });
+
+  describe('archiveClient', () => {
+    it('archives the client', async () => {
+      clientsRepository.archive.mockResolvedValue(true);
+
+      await expect(service.archiveClient(5)).resolves.toBeUndefined();
+      expect(clientsRepository.archive).toHaveBeenCalledWith(5);
+    });
+
+    it('answers 404 for a client that is missing or already archived', async () => {
+      clientsRepository.archive.mockResolvedValue(false);
+
+      await expect(service.archiveClient(5)).rejects.toThrow(
+        new NotFoundException('Client not found'),
+      );
+    });
+  });
+
+  describe('restoreClient', () => {
+    it('restores the client and returns it as the actor sees it', async () => {
+      clientsRepository.restore.mockResolvedValue('restored');
+      clientsRepository.findById.mockResolvedValue(aClient);
+
+      await expect(service.restoreClient(5, admin)).resolves.toBe(aClient);
+      expect(clientsRepository.restore).toHaveBeenCalledWith(5);
+      expect(clientsRepository.findById).toHaveBeenCalledWith(5, undefined);
+    });
+
+    it('answers 409 when the client is not archived', async () => {
+      clientsRepository.restore.mockResolvedValue('not_archived');
+
+      await expect(service.restoreClient(5, admin)).rejects.toThrow(ConflictException);
+      expect(clientsRepository.findById).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when there is no such client', async () => {
+      clientsRepository.restore.mockResolvedValue('not_found');
+
+      await expect(service.restoreClient(5, admin)).rejects.toThrow(NotFoundException);
+      expect(clientsRepository.findById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getArchivedClients', () => {
+    const makeArchivedQuery = (page: number, limit: number): GetPoolQueryDto =>
+      Object.assign(new GetPoolQueryDto(), { page, limit });
+
+    it('reads the requested page and builds the meta', async () => {
+      clientsRepository.findArchived.mockResolvedValue([aClient]);
+      clientsRepository.countArchived.mockResolvedValue(25);
+
+      const result = await service.getArchivedClients(makeArchivedQuery(3, 10));
+
+      expect(clientsRepository.findArchived).toHaveBeenCalledWith({ skip: 20, take: 10 });
+      expect(result.data).toEqual([aClient]);
+      expect(result.meta).toEqual({ page: 3, limit: 10, total: 25, pages: 3 });
     });
   });
 

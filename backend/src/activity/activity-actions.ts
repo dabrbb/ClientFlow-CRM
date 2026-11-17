@@ -8,6 +8,8 @@ export const ACTIVITY_ACTIONS = [
   'CHANGE_STATUS',
   'ASSIGN',
   'CLAIM',
+  'ARCHIVE',
+  'RESTORE',
   'ADD_MANAGER',
   'REMOVE_MANAGER',
 ] as const;

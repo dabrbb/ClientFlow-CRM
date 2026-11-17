@@ -29,8 +29,10 @@ import { AddManagerDto } from './dto/add-manager.dto';
 import { ClientManagerResponseDto } from './dto/client-manager-response.dto';
 import { LogActivity } from 'src/activity/log-activity.decorator';
 import {
+  clientArchived,
   clientClaimed,
   clientCreated,
+  clientRestored,
   clientUpdated,
   managerAdded,
   managerRemoved,
@@ -56,6 +58,14 @@ export class ClientsController {
     return this.clientsService.getPool(query);
   }
 
+  // Admin only. Declared before ':id' for the same reason as 'pool'.
+  @Get('archived')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async findArchived(@Query() query: GetPoolQueryDto): Promise<ClientResponseDto> {
+    return this.clientsService.getArchivedClients(query);
+  }
+
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.clientsService.getClientForActor(id, user);
@@ -77,6 +87,25 @@ export class ClientsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.clientsService.updateClient(id, dto, user);
+  }
+
+  // Archiving hides the client and everything hanging off it from every non-archive route.
+  // Only an admin archives and restores.
+  @Delete(':id')
+  @LogActivity(clientArchived)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async archive(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    await this.clientsService.archiveClient(id);
+  }
+
+  @Post(':id/restore')
+  @LogActivity(clientRestored)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async restore(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
+    return this.clientsService.restoreClient(id, user);
   }
 
   @Post(':id/claim')

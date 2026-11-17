@@ -24,6 +24,8 @@ describe('Activity log through the real AppModule', () => {
       create: jest.fn<Promise<Client>, [Prisma.ClientCreateArgs]>(),
       findMany: jest.fn<Promise<unknown[]>, [Prisma.ClientFindManyArgs]>(),
       count: jest.fn<Promise<number>, [Prisma.ClientCountArgs]>(),
+      updateMany: jest.fn<Promise<Prisma.BatchPayload>, [Prisma.ClientUpdateManyArgs]>(),
+      findFirst: jest.fn<Promise<Client | null>, [Prisma.ClientFindFirstArgs]>(),
     },
     activityLog: {
       createMany: jest.fn<Promise<Prisma.BatchPayload>, [Prisma.ActivityLogCreateManyArgs]>(),
@@ -127,6 +129,60 @@ describe('Activity log through the real AppModule', () => {
     await createClient(adminToken).expect(500);
 
     expect(prisma.activityLog.createMany).not.toHaveBeenCalled();
+  });
+
+  describe('archiving and restoring a client', () => {
+    const asAdmin = (req: request.Test) => req.set('Authorization', `Bearer ${adminToken}`);
+
+    it('logs exactly one ARCHIVE record, not DELETE', async () => {
+      prisma.client.updateMany.mockResolvedValue({ count: 1 });
+
+      await asAdmin(request(app.getHttpServer()).delete('/clients/5')).expect(204);
+
+      expect(prisma.activityLog.createMany).toHaveBeenCalledTimes(1);
+      expect(prisma.activityLog.createMany).toHaveBeenCalledWith({
+        data: [{ userId: 1, action: 'ARCHIVE', entity: 'Client', entityId: 5 }],
+      });
+    });
+
+    it('logs exactly one RESTORE record', async () => {
+      prisma.client.updateMany.mockResolvedValue({ count: 1 });
+      prisma.client.findFirst.mockResolvedValue(createdClient);
+
+      await asAdmin(request(app.getHttpServer()).post('/clients/5/restore')).expect(201);
+
+      expect(prisma.activityLog.createMany).toHaveBeenCalledTimes(1);
+      expect(prisma.activityLog.createMany).toHaveBeenCalledWith({
+        data: [{ userId: 1, action: 'RESTORE', entity: 'Client', entityId: 5 }],
+      });
+    });
+
+    it('writes nothing when the client is missing or already archived (404)', async () => {
+      prisma.client.updateMany.mockResolvedValue({ count: 0 });
+
+      await asAdmin(request(app.getHttpServer()).delete('/clients/5')).expect(404);
+
+      expect(prisma.activityLog.createMany).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when the client is not archived (409)', async () => {
+      prisma.client.updateMany.mockResolvedValue({ count: 0 });
+      prisma.client.count.mockResolvedValue(1);
+
+      await asAdmin(request(app.getHttpServer()).post('/clients/5/restore')).expect(409);
+
+      expect(prisma.activityLog.createMany).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['archive', () => request(app.getHttpServer()).delete('/clients/5')],
+      ['restore', () => request(app.getHttpServer()).post('/clients/5/restore')],
+    ])('writes nothing when a manager tries to %s (403)', async (_name, send) => {
+      await send().set('Authorization', `Bearer ${managerToken}`).expect(403);
+
+      expect(prisma.client.updateMany).not.toHaveBeenCalled();
+      expect(prisma.activityLog.createMany).not.toHaveBeenCalled();
+    });
   });
 
   it('keeps the response of the main handler when writing the activity fails', async () => {

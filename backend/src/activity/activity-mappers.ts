@@ -72,6 +72,15 @@ export const clientClaimed: ActivityMapper = (context) => [
   { action: 'CLAIM', entity: 'Client', entityId: paramId(context, 'id') },
 ];
 
+// Soft delete of a client; DELETE stays reserved for physical removal (notes).
+export const clientArchived: ActivityMapper = (context) => [
+  { action: 'ARCHIVE', entity: 'Client', entityId: paramId(context, 'id') },
+];
+
+export const clientRestored: ActivityMapper = (context) => [
+  { action: 'RESTORE', entity: 'Client', entityId: paramId(context, 'id') },
+];
+
 export const managerAdded: ActivityMapper = (context) => [
   {
     action: 'ADD_MANAGER',

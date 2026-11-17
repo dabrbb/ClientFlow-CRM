@@ -26,6 +26,9 @@ describe('DealsRepository', () => {
     repository = moduleRef.get(DealsRepository);
   });
 
+  // Deals carry no archive flag: they are hidden through the client's deletedAt.
+  const ofActiveClient = { client: { deletedAt: null } };
+
   it('create passes the data through and includes the client', async () => {
     const data: Prisma.DealCreateInput = {
       title: 'Big deal',
@@ -37,11 +40,11 @@ describe('DealsRepository', () => {
     expect(prisma.deal.create.mock.calls[0][0]).toEqual({ data, include: { client: true } });
   });
 
-  it('findById looks the deal up by id and includes the client', async () => {
+  it('findById looks the deal up by id among non-archived clients and includes the client', async () => {
     await repository.findById(5);
 
     expect(prisma.deal.findFirst.mock.calls[0][0]).toEqual({
-      where: { id: 5 },
+      where: { id: 5, ...ofActiveClient },
       include: { client: true },
     });
   });
@@ -52,7 +55,7 @@ describe('DealsRepository', () => {
     await repository.findAll();
 
     expect(prisma.deal.findMany.mock.calls[0][0]).toEqual({
-      where: {},
+      where: ofActiveClient,
       include: { client: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -99,7 +102,7 @@ describe('DealsRepository', () => {
   });
 
   describe('managerId', () => {
-    const ofManager7 = { client: { managers: { some: { userId: 7 } } } };
+    const ofManager7 = { client: { deletedAt: null, managers: { some: { userId: 7 } } } };
 
     it('findAll limits deals to clients assigned to that manager', async () => {
       prisma.deal.findMany.mockResolvedValue([]);
@@ -109,14 +112,14 @@ describe('DealsRepository', () => {
       expect(prisma.deal.findMany.mock.calls[0][0].where).toEqual(ofManager7);
     });
 
-    it('findAll adds no restriction without a manager', async () => {
+    it('findAll adds no manager restriction without a manager, but still hides archived clients', async () => {
       prisma.deal.findMany.mockResolvedValue([]);
 
       await repository.findAll({ managerId: undefined });
       await repository.findAll({});
 
-      expect(prisma.deal.findMany.mock.calls[0][0].where).toEqual({});
-      expect(prisma.deal.findMany.mock.calls[1][0].where).toEqual({});
+      expect(prisma.deal.findMany.mock.calls[0][0].where).toEqual(ofActiveClient);
+      expect(prisma.deal.findMany.mock.calls[1][0].where).toEqual(ofActiveClient);
     });
 
     it('findAll keeps manager id 0 as a real restriction', async () => {
@@ -125,7 +128,7 @@ describe('DealsRepository', () => {
       await repository.findAll({ managerId: 0 });
 
       expect(prisma.deal.findMany.mock.calls[0][0].where).toEqual({
-        client: { managers: { some: { userId: 0 } } },
+        client: { deletedAt: null, managers: { some: { userId: 0 } } },
       });
     });
 
@@ -138,10 +141,10 @@ describe('DealsRepository', () => {
       });
     });
 
-    it('findById looks up by id alone without a manager', async () => {
+    it('findById without a manager still excludes archived clients', async () => {
       await repository.findById(5);
 
-      expect(prisma.deal.findFirst.mock.calls[0][0].where).toEqual({ id: 5 });
+      expect(prisma.deal.findFirst.mock.calls[0][0].where).toEqual({ id: 5, ...ofActiveClient });
     });
   });
 
@@ -160,7 +163,7 @@ describe('DealsRepository', () => {
       ]);
       expect(prisma.deal.groupBy.mock.calls[0][0]).toEqual({
         by: ['stage'],
-        where: {},
+        where: ofActiveClient,
         _count: { _all: true },
         _sum: { value: true },
       });
@@ -172,8 +175,34 @@ describe('DealsRepository', () => {
       await repository.statsByStage({ managerId: 7 });
 
       expect(prisma.deal.groupBy.mock.calls[0][0].where).toEqual({
-        client: { managers: { some: { userId: 7 } } },
+        client: { deletedAt: null, managers: { some: { userId: 7 } } },
       });
+    });
+  });
+  describe('archived clients', () => {
+    it('are excluded from every read, for a manager and for an admin alike', async () => {
+      prisma.deal.findMany.mockResolvedValue([]);
+      prisma.deal.groupBy.mockResolvedValue([] as never);
+
+      await repository.findAll({ managerId: 7 });
+      await repository.findAll();
+      await repository.findById(5, 7);
+      await repository.findById(5);
+      await repository.statsByStage({ managerId: 7 });
+      await repository.statsByStage();
+
+      const wheres = [
+        prisma.deal.findMany.mock.calls[0][0].where,
+        prisma.deal.findMany.mock.calls[1][0].where,
+        prisma.deal.findFirst.mock.calls[0][0].where,
+        prisma.deal.findFirst.mock.calls[1][0].where,
+        prisma.deal.groupBy.mock.calls[0][0].where,
+        prisma.deal.groupBy.mock.calls[1][0].where,
+      ];
+
+      for (const where of wheres) {
+        expect(where).toMatchObject({ client: { deletedAt: null } });
+      }
     });
   });
 });

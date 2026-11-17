@@ -60,6 +60,22 @@ describe('ClientsController (HTTP, no database)', () => {
       ReturnType<ClientsService['removeManager']>,
       Parameters<ClientsService['removeManager']>
     >(),
+    archiveClient: jest.fn<
+      ReturnType<ClientsService['archiveClient']>,
+      Parameters<ClientsService['archiveClient']>
+    >(),
+    restoreClient: jest.fn<
+      ReturnType<ClientsService['restoreClient']>,
+      Parameters<ClientsService['restoreClient']>
+    >(),
+    getArchivedClients: jest.fn<
+      ReturnType<ClientsService['getArchivedClients']>,
+      Parameters<ClientsService['getArchivedClients']>
+    >(),
+  };
+
+  const asAdmin = () => {
+    signedInUser = { sub: 1, email: 'admin@example.com', role: Role.ADMIN };
   };
 
   const aClient: Client = {
@@ -385,6 +401,142 @@ describe('ClientsController (HTTP, no database)', () => {
 
       expect(res.status).toBe(400);
       expect(clientsService.removeManager).not.toHaveBeenCalled();
+    });
+  });
+  describe('DELETE /clients/:id (archive)', () => {
+    it('is forbidden for a manager and does not reach the service', async () => {
+      const res = await request(app.getHttpServer()).delete('/clients/5');
+
+      expect(res.status).toBe(403);
+      expect(clientsService.archiveClient).not.toHaveBeenCalled();
+    });
+
+    it('lets an admin archive: 204 without a body, id passed on', async () => {
+      asAdmin();
+      clientsService.archiveClient.mockResolvedValue(undefined);
+
+      const res = await request(app.getHttpServer()).delete('/clients/5');
+
+      expect(res.status).toBe(204);
+      expect(res.text).toBe('');
+      expect(clientsService.archiveClient).toHaveBeenCalledWith(5);
+    });
+
+    it('answers 404 when the client is missing or already archived', async () => {
+      asAdmin();
+      clientsService.archiveClient.mockRejectedValue(new NotFoundException('Client not found'));
+
+      const res = await request(app.getHttpServer()).delete('/clients/5');
+
+      expect(res.status).toBe(404);
+    });
+
+    it('rejects a non-numeric id with 400', async () => {
+      asAdmin();
+
+      const res = await request(app.getHttpServer()).delete('/clients/abc');
+
+      expect(res.status).toBe(400);
+      expect(clientsService.archiveClient).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /clients/:id/restore', () => {
+    it('is forbidden for a manager and does not reach the service', async () => {
+      const res = await request(app.getHttpServer()).post('/clients/5/restore');
+
+      expect(res.status).toBe(403);
+      expect(clientsService.restoreClient).not.toHaveBeenCalled();
+    });
+
+    it('lets an admin restore and passes the id and the admin to the service', async () => {
+      asAdmin();
+      clientsService.restoreClient.mockResolvedValue(aClient);
+
+      const res = await request(app.getHttpServer()).post('/clients/5/restore');
+
+      expect(res.status).toBe(201);
+      expect(res.body).toEqual(asJson(aClient));
+      expect(clientsService.restoreClient).toHaveBeenCalledWith(5, signedInUser);
+    });
+
+    it('answers 409 when the client is not archived', async () => {
+      asAdmin();
+      clientsService.restoreClient.mockRejectedValue(
+        new ConflictException('This client is not archived'),
+      );
+
+      const res = await request(app.getHttpServer()).post('/clients/5/restore');
+
+      expect(res.status).toBe(409);
+    });
+
+    it('answers 404 when there is no such client', async () => {
+      asAdmin();
+      clientsService.restoreClient.mockRejectedValue(new NotFoundException('Client not found'));
+
+      const res = await request(app.getHttpServer()).post('/clients/5/restore');
+
+      expect(res.status).toBe(404);
+    });
+
+    it('rejects a non-numeric id with 400', async () => {
+      asAdmin();
+
+      const res = await request(app.getHttpServer()).post('/clients/abc/restore');
+
+      expect(res.status).toBe(400);
+      expect(clientsService.restoreClient).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /clients/archived', () => {
+    it('is forbidden for a manager and does not reach the service', async () => {
+      const res = await request(app.getHttpServer()).get('/clients/archived');
+
+      expect(res.status).toBe(403);
+      expect(clientsService.getArchivedClients).not.toHaveBeenCalled();
+    });
+
+    it('is routed to the archive for an admin, not read as a client id', async () => {
+      asAdmin();
+      clientsService.getArchivedClients.mockResolvedValue(
+        new ClientResponseDto([aClient], 1, 10, 1),
+      );
+
+      const res = await request(app.getHttpServer()).get('/clients/archived');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(asJson(new ClientResponseDto([aClient], 1, 10, 1)));
+      expect(clientsService.getClientForActor).not.toHaveBeenCalled();
+    });
+
+    it('reads page and limit from the query and applies defaults', async () => {
+      asAdmin();
+      clientsService.getArchivedClients.mockResolvedValue(new ClientResponseDto([], 3, 5, 0));
+
+      await request(app.getHttpServer()).get('/clients/archived?page=3&limit=5');
+      await request(app.getHttpServer()).get('/clients/archived');
+
+      expect(clientsService.getArchivedClients.mock.calls[0][0]).toMatchObject({
+        page: 3,
+        limit: 5,
+      });
+      expect(clientsService.getArchivedClients.mock.calls[1][0]).toMatchObject({
+        page: 1,
+        limit: 10,
+      });
+    });
+
+    it('rejects an invalid limit and unknown parameters with 400', async () => {
+      asAdmin();
+
+      const tooBig = await request(app.getHttpServer()).get('/clients/archived?limit=101');
+      const unknown = await request(app.getHttpServer()).get('/clients/archived?search=x');
+
+      expect(tooBig.status).toBe(400);
+      expect(unknown.status).toBe(400);
+      expect(clientsService.getArchivedClients).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,6 +1,8 @@
 import { ActivityContext, ActivityDraft } from './activity.types';
 import {
+  clientArchived,
   clientClaimed,
+  clientRestored,
   clientCreated,
   clientUpdated,
   dealCreated,
@@ -63,6 +65,29 @@ describe('activity mappers', () => {
       expect(clientClaimed(ctx({ params: { id: '5' } }))).toEqual([
         { action: 'CLAIM', entity: 'Client', entityId: 5 },
       ]);
+    });
+
+    it('ARCHIVE records the client from the path, with no details and not as DELETE', () => {
+      expect(clientArchived(ctx({ params: { id: '5' } }))).toEqual([
+        { action: 'ARCHIVE', entity: 'Client', entityId: 5 },
+      ]);
+    });
+
+    it('RESTORE records the client from the path, with no details', () => {
+      expect(clientRestored(ctx({ params: { id: '5' } }))).toEqual([
+        { action: 'RESTORE', entity: 'Client', entityId: 5 },
+      ]);
+    });
+
+    it('ARCHIVE and RESTORE ignore the body and the response', () => {
+      const context = ctx({
+        params: { id: '5' },
+        body: { name: 'SECRET', id: 99 },
+        response: { id: 77 },
+      });
+
+      expect(clientArchived(context)[0].entityId).toBe(5);
+      expect(clientRestored(context)[0].entityId).toBe(5);
     });
 
     it('ADD_MANAGER stores the user id from the body, on the client from the path', () => {
@@ -246,6 +271,8 @@ describe('activity mappers', () => {
       clientCreated,
       clientUpdated,
       clientClaimed,
+      clientArchived,
+      clientRestored,
       managerAdded,
       managerRemoved,
       dealCreated,
